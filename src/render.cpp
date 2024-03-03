@@ -1,9 +1,12 @@
 #pragma comment(lib, "user32.lib") 
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "D3DCompiler.lib")
 
 #include <stdint.h>
 #include <windows.h>
 #include <d3d11.h>
+#include <d3dcompiler.h>
+#include <DirectXMath.h>
 
 #define internal static
 #define local_persist static
@@ -20,10 +23,38 @@ typedef float real32;
 typedef double real64;
 typedef real32 RGBA[4];
 
-IDXGISwapChain* SwapChain;
-ID3D11Device* d3d11Device;
-ID3D11DeviceContext* d3d11DevCon;
-ID3D11RenderTargetView* renderTargetView;
+struct vector3 { real32 x, y, z; };
+struct matrix { real32 m[4][4]; };
+
+matrix operator*(const matrix& m1, const matrix& m2);
+
+struct Vertex
+{
+    Vertex(){}
+    Vertex(float x, float y, float z)
+        : pos(x,y,z){}
+
+    DirectX::XMFLOAT3 pos;
+};
+
+D3D11_INPUT_ELEMENT_DESC layout[] =
+{
+    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
+};
+UINT numElements = ARRAYSIZE(layout);
+
+IDXGISwapChain* swap_chain;
+ID3D11Device* device;
+ID3D11DeviceContext* device_context;
+ID3D11RenderTargetView* render_target_view;
+
+ID3D11Buffer* triangle_vertex_buffer;
+ID3D11VertexShader* vertex_shader;
+ID3D11PixelShader* pixel_shader;
+ID3D10Blob* vertex_shader_buffer;
+ID3D10Blob* pixel_shader_buffer;
+ID3D11InputLayout* vertex_layout;
+
 
 real32 red = 0.0f;
 real32 green = 0.0f;
@@ -117,47 +148,47 @@ bool32 window_init(HINSTANCE hInstance,
 bool32 d3d11_init(HINSTANCE hInstance)
 {
     //Describe our Buffer
-    DXGI_MODE_DESC bufferDesc;
+    DXGI_MODE_DESC buffer_desc;
 
-    ZeroMemory(&bufferDesc, sizeof(DXGI_MODE_DESC));
+    ZeroMemory(&buffer_desc, sizeof(DXGI_MODE_DESC));
 
-    bufferDesc.Width = Width;
-    bufferDesc.Height = Height;
-    bufferDesc.RefreshRate.Numerator = 60;
-    bufferDesc.RefreshRate.Denominator = 1;
-    bufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    bufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-    bufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+    buffer_desc.Width = Width;
+    buffer_desc.Height = Height;
+    buffer_desc.RefreshRate.Numerator = 60;
+    buffer_desc.RefreshRate.Denominator = 1;
+    buffer_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    buffer_desc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+    buffer_desc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
     
     //Describe our SwapChain
-    DXGI_SWAP_CHAIN_DESC swapChainDesc; 
+    DXGI_SWAP_CHAIN_DESC swap_chain_desc; 
         
-    ZeroMemory(&swapChainDesc, sizeof(DXGI_SWAP_CHAIN_DESC));
+    ZeroMemory(&swap_chain_desc, sizeof(DXGI_SWAP_CHAIN_DESC));
 
-    swapChainDesc.BufferDesc = bufferDesc;
-    swapChainDesc.SampleDesc.Count = 1;
-    swapChainDesc.SampleDesc.Quality = 0;
-    swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapChainDesc.BufferCount = 1;
-    swapChainDesc.OutputWindow = window; 
-    swapChainDesc.Windowed = TRUE; 
-    swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    swap_chain_desc.BufferDesc = buffer_desc;
+    swap_chain_desc.SampleDesc.Count = 1;
+    swap_chain_desc.SampleDesc.Quality = 0;
+    swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swap_chain_desc.BufferCount = 1;
+    swap_chain_desc.OutputWindow = window; 
+    swap_chain_desc.Windowed = TRUE; 
+    swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
 
     //Create our SwapChain
     D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, NULL, NULL, NULL,
-        D3D11_SDK_VERSION, &swapChainDesc, &SwapChain, &d3d11Device, NULL, &d3d11DevCon);
+        D3D11_SDK_VERSION, &swap_chain_desc, &swap_chain, &device, NULL, &device_context);
 
-    //Create our BackBuffer
-    ID3D11Texture2D* BackBuffer;
-    SwapChain->GetBuffer( 0, __uuidof( ID3D11Texture2D ), (void**)&BackBuffer );
+    //Create our backbuffer
+    ID3D11Texture2D* backbuffer;
+    swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backbuffer);
 
     //Create our Render Target
-    d3d11Device->CreateRenderTargetView( BackBuffer, NULL, &renderTargetView );
-    BackBuffer->Release();
+    device->CreateRenderTargetView(backbuffer, NULL, &render_target_view);
+    backbuffer->Release();
 
     //Set our Render Target
-    d3d11DevCon->OMSetRenderTargets( 1, &renderTargetView, NULL );
+    device_context->OMSetRenderTargets(1, &render_target_view, NULL);
 
     return true;
 }
@@ -165,12 +196,66 @@ bool32 d3d11_init(HINSTANCE hInstance)
 void release_objects()
 {
     //Release the COM Objects we created
-    SwapChain->Release();
-    d3d11Device->Release();
-    d3d11DevCon->Release();
+    swap_chain->Release();
+    device->Release();
+    device_context->Release();
 }
 bool32 scene_init()
 {
+    HRESULT hr;
+
+    hr = D3DCompileFromFile((const wchar_t*)"Effects.fx", 0, 0, "VS", "vertex_shader_5_0", 0, 0, &vertex_shader_buffer, 0);
+    assert(hr == S_OK);
+    hr = D3DCompileFromFile((const wchar_t*)"Effects.fx", 0, 0, "PS", "pixel_shader_5_0", 0, 0, &pixel_shader_buffer, 0);
+    assert(hr == S_OK);
+
+    hr = device->CreateVertexShader(vertex_shader_buffer->GetBufferPointer(), 
+        vertex_shader_buffer->GetBufferSize(), 0, &vertex_shader);
+    hr = device->CreatePixelShader(pixel_shader_buffer->GetBufferPointer(), 
+        pixel_shader_buffer->GetBufferSize(), 0, &pixel_shader);
+
+    device_context->VSSetShader(vertex_shader, 0, 0);
+    device_context->PSSetShader(pixel_shader, 0, 0);
+
+    Vertex v[] =
+    {
+        Vertex(0.0f, 0.5f, 0.5f),
+        Vertex(0.5f, -0.5f, 0.5f),
+        Vertex(-0.5f, -0.5f, 0.5f),
+    };
+
+    D3D11_BUFFER_DESC vertexBufferDesc = {};
+
+    vertexBufferDesc.Usage = D3D11_USAGE_DEFAULT;
+    vertexBufferDesc.ByteWidth = sizeof(Vertex) * 3;
+    vertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    vertexBufferDesc.CPUAccessFlags = 0;
+    vertexBufferDesc.MiscFlags = 0;
+
+    D3D11_SUBRESOURCE_DATA vertexBufferData ={};
+
+    vertexBufferData.pSysMem = v;
+    hr = device->CreateBuffer(&vertexBufferDesc, &vertexBufferData, &triangle_vertex_buffer);
+
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    device_context->IASetVertexBuffers(0, 1, &triangle_vertex_buffer, &stride, &offset);
+
+    hr = device->CreateInputLayout(layout, numElements, vertex_shader_buffer->GetBufferPointer(), 
+        vertex_shader_buffer->GetBufferSize(), &vertex_layout);
+
+    device_context->IASetInputLayout(vertex_layout);
+
+    device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    D3D11_VIEWPORT viewport = {};
+
+    viewport.TopLeftX = 0;
+    viewport.TopLeftY = 0;
+    viewport.Width = Width;
+    viewport.Height = Height;
+
+    device_context->RSSetViewports(1, &viewport);
 
     return true;
 }
@@ -192,14 +277,12 @@ void scene_update()
 
 void scene_render()
 {
-    //Clear our backbuffer to the updated color
-    d3d11DevCon->ClearRenderTargetView(renderTargetView, RGBA{red, green, blue, 1.0f});
+    real32 bgColor[4] = {(0.0f, 0.0f, 0.0f, 0.0f)};
 
-    //Present the backbuffer to the screen
-    SwapChain->Present(0, 0);
+    device_context->ClearRenderTargetView(render_target_view, bgColor);
+    device_context->Draw(3, 0);
+    swap_chain->Present(0, 0);
 }
-
-///////////////**************new**************////////////////////
 
 int messageloop(){
     MSG msg;
@@ -262,7 +345,28 @@ int WINAPI WinMain(HINSTANCE hInstance,    //Main windows function
 
     release_objects();
     
-///////////////**************new**************////////////////////
-
     return 0;
+}
+
+matrix operator*(const matrix& m1, const matrix& m2)
+{
+    return
+    {
+        m1.m[0][0] * m2.m[0][0] + m1.m[0][1] * m2.m[1][0] + m1.m[0][2] * m2.m[2][0] + m1.m[0][3] * m2.m[3][0],
+        m1.m[0][0] * m2.m[0][1] + m1.m[0][1] * m2.m[1][1] + m1.m[0][2] * m2.m[2][1] + m1.m[0][3] * m2.m[3][1],
+        m1.m[0][0] * m2.m[0][2] + m1.m[0][1] * m2.m[1][2] + m1.m[0][2] * m2.m[2][2] + m1.m[0][3] * m2.m[3][2],
+        m1.m[0][0] * m2.m[0][3] + m1.m[0][1] * m2.m[1][3] + m1.m[0][2] * m2.m[2][3] + m1.m[0][3] * m2.m[3][3],
+        m1.m[1][0] * m2.m[0][0] + m1.m[1][1] * m2.m[1][0] + m1.m[1][2] * m2.m[2][0] + m1.m[1][3] * m2.m[3][0],
+        m1.m[1][0] * m2.m[0][1] + m1.m[1][1] * m2.m[1][1] + m1.m[1][2] * m2.m[2][1] + m1.m[1][3] * m2.m[3][1],
+        m1.m[1][0] * m2.m[0][2] + m1.m[1][1] * m2.m[1][2] + m1.m[1][2] * m2.m[2][2] + m1.m[1][3] * m2.m[3][2],
+        m1.m[1][0] * m2.m[0][3] + m1.m[1][1] * m2.m[1][3] + m1.m[1][2] * m2.m[2][3] + m1.m[1][3] * m2.m[3][3],
+        m1.m[2][0] * m2.m[0][0] + m1.m[2][1] * m2.m[1][0] + m1.m[2][2] * m2.m[2][0] + m1.m[2][3] * m2.m[3][0],
+        m1.m[2][0] * m2.m[0][1] + m1.m[2][1] * m2.m[1][1] + m1.m[2][2] * m2.m[2][1] + m1.m[2][3] * m2.m[3][1],
+        m1.m[2][0] * m2.m[0][2] + m1.m[2][1] * m2.m[1][2] + m1.m[2][2] * m2.m[2][2] + m1.m[2][3] * m2.m[3][2],
+        m1.m[2][0] * m2.m[0][3] + m1.m[2][1] * m2.m[1][3] + m1.m[2][2] * m2.m[2][3] + m1.m[2][3] * m2.m[3][3],
+        m1.m[3][0] * m2.m[0][0] + m1.m[3][1] * m2.m[1][0] + m1.m[3][2] * m2.m[2][0] + m1.m[3][3] * m2.m[3][0],
+        m1.m[3][0] * m2.m[0][1] + m1.m[3][1] * m2.m[1][1] + m1.m[3][2] * m2.m[2][1] + m1.m[3][3] * m2.m[3][1],
+        m1.m[3][0] * m2.m[0][2] + m1.m[3][1] * m2.m[1][2] + m1.m[3][2] * m2.m[2][2] + m1.m[3][3] * m2.m[3][2],
+        m1.m[3][0] * m2.m[0][3] + m1.m[3][1] * m2.m[1][3] + m1.m[3][2] * m2.m[2][3] + m1.m[3][3] * m2.m[3][3],
+    };
 }
