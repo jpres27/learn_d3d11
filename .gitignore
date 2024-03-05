@@ -1,2 +1,5 @@
 build.bat
 debug.bat
+sc.bat
+src/d3d11_pshader.h
+src/d3d11_vshader.h

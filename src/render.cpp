@@ -1,11 +1,11 @@
-#pragma comment(lib, "user32.lib") 
-#pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "D3DCompiler.lib")
+#pragma comment (lib, "gdi32.lib")
+#pragma comment (lib, "user32.lib")
+#pragma comment (lib, "d3d11.lib")
+
 
 #include <stdint.h>
 #include <windows.h>
 #include <d3d11.h>
-#include <d3dcompiler.h>
 #include <DirectXMath.h>
 
 #define internal static
@@ -31,15 +31,18 @@ matrix operator*(const matrix& m1, const matrix& m2);
 struct Vertex
 {
     Vertex(){}
-    Vertex(float x, float y, float z)
-        : pos(x,y,z){}
+    Vertex(float x, float y, float z,
+        float cr, float cg, float cb, float ca)
+        : pos(x,y,z), color(cr, cg, cb, ca){}
 
     DirectX::XMFLOAT3 pos;
+    DirectX::XMFLOAT4 color;
 };
 
 D3D11_INPUT_ELEMENT_DESC layout[] =
 {
     { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
+    { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
 };
 UINT numElements = ARRAYSIZE(layout);
 
@@ -51,8 +54,6 @@ ID3D11RenderTargetView* render_target_view;
 ID3D11Buffer* triangle_vertex_buffer;
 ID3D11VertexShader* vertex_shader;
 ID3D11PixelShader* pixel_shader;
-ID3D10Blob* vertex_shader_buffer;
-ID3D10Blob* pixel_shader_buffer;
 ID3D11InputLayout* vertex_layout;
 
 
@@ -68,6 +69,12 @@ HWND window = NULL;
 
 const int Width  = 300;
 const int Height = 300;
+
+internal void fatal_error(const char* message)
+{
+    MessageBoxA(NULL, message, "Error", MB_ICONEXCLAMATION);
+    ExitProcess(0);
+}
 
 LRESULT CALLBACK WndProc(HWND window,
     UINT msg,
@@ -174,10 +181,14 @@ bool32 d3d11_init(HINSTANCE hInstance)
     swap_chain_desc.Windowed = TRUE; 
     swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
+    UINT flags = 0;
+    D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0 };
+    HRESULT hr;
 
     //Create our SwapChain
-    D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, NULL, NULL, NULL,
-        D3D11_SDK_VERSION, &swap_chain_desc, &swap_chain, &device, NULL, &device_context);
+    hr = D3D11CreateDeviceAndSwapChain(0, D3D_DRIVER_TYPE_HARDWARE, 0, flags, levels, ARRAYSIZE(levels),
+        D3D11_SDK_VERSION, &swap_chain_desc, &swap_chain, &device, 0, &device_context);
+    assert(SUCCEEDED(hr));
 
     //Create our backbuffer
     ID3D11Texture2D* backbuffer;
@@ -195,7 +206,6 @@ bool32 d3d11_init(HINSTANCE hInstance)
 
 void release_objects()
 {
-    //Release the COM Objects we created
     swap_chain->Release();
     device->Release();
     device_context->Release();
@@ -204,24 +214,20 @@ bool32 scene_init()
 {
     HRESULT hr;
 
-    hr = D3DCompileFromFile((const wchar_t*)"Effects.fx", 0, 0, "VS", "vertex_shader_5_0", 0, 0, &vertex_shader_buffer, 0);
-    assert(hr == S_OK);
-    hr = D3DCompileFromFile((const wchar_t*)"Effects.fx", 0, 0, "PS", "pixel_shader_5_0", 0, 0, &pixel_shader_buffer, 0);
-    assert(hr == S_OK);
+    #include "d3d11_vshader.h"
+    #include "d3d11_pshader.h"
 
-    hr = device->CreateVertexShader(vertex_shader_buffer->GetBufferPointer(), 
-        vertex_shader_buffer->GetBufferSize(), 0, &vertex_shader);
-    hr = device->CreatePixelShader(pixel_shader_buffer->GetBufferPointer(), 
-        pixel_shader_buffer->GetBufferSize(), 0, &pixel_shader);
+    hr = device->CreateVertexShader(d3d11_vshader, sizeof(d3d11_vshader), 0, &vertex_shader);
+    hr = device->CreatePixelShader(d3d11_pshader, sizeof(d3d11_pshader), 0, &pixel_shader);
 
     device_context->VSSetShader(vertex_shader, 0, 0);
     device_context->PSSetShader(pixel_shader, 0, 0);
 
     Vertex v[] =
     {
-        Vertex(0.0f, 0.5f, 0.5f),
-        Vertex(0.5f, -0.5f, 0.5f),
-        Vertex(-0.5f, -0.5f, 0.5f),
+        Vertex( 0.0f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f ),
+        Vertex( 0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f ),
+        Vertex( -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f ),
     };
 
     D3D11_BUFFER_DESC vertexBufferDesc = {};
@@ -241,8 +247,7 @@ bool32 scene_init()
     UINT offset = 0;
     device_context->IASetVertexBuffers(0, 1, &triangle_vertex_buffer, &stride, &offset);
 
-    hr = device->CreateInputLayout(layout, numElements, vertex_shader_buffer->GetBufferPointer(), 
-        vertex_shader_buffer->GetBufferSize(), &vertex_layout);
+    hr = device->CreateInputLayout(layout, numElements, d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
 
     device_context->IASetInputLayout(vertex_layout);
 
