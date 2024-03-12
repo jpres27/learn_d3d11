@@ -1,3 +1,8 @@
+cbuffer CB_Per_Object
+{
+    float4x4 wvp;
+};
+
 struct VS_OUTPUT
 {
     float4 Pos : SV_POSITION;
@@ -8,7 +13,7 @@ VS_OUTPUT vs(float4 inPos : POSITION, float4 inColor : COLOR)
 {
     VS_OUTPUT output;
 
-    output.Pos = inPos;
+    output.Pos = mul(inPos, wvp);
     output.Color = inColor;
 
     return output;

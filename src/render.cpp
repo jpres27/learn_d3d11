@@ -51,10 +51,16 @@ ID3D11Device* device;
 ID3D11DeviceContext* device_context;
 ID3D11RenderTargetView* render_target_view;
 
-ID3D11Buffer* triangle_vertex_buffer;
+ID3D11Buffer* sq_index_buffer;
+ID3D11Buffer* sq_vert_buffer;
+ID3D11DepthStencilView* depth_stencil_view;
+ID3D11Texture2D* depth_stencil_buffer;
+
 ID3D11VertexShader* vertex_shader;
 ID3D11PixelShader* pixel_shader;
 ID3D11InputLayout* vertex_layout;
+
+ID3D11Buffer* cb_per_object_buffer;
 
 
 real32 red = 0.0f;
@@ -67,14 +73,23 @@ int colormodb = 1;
 LPCTSTR WndClassName = "firstwindow";
 HWND window = NULL;
 
-const int Width  = 300;
-const int Height = 300;
+const int WIDTH  = 300;
+const int HEIGHT = 300;
 
-internal void fatal_error(const char* message)
+DirectX::XMMATRIX wvp;
+DirectX::XMMATRIX world;
+DirectX::XMMATRIX cam_view;
+DirectX::XMMATRIX cam_projection;
+DirectX::XMVECTOR cam_position;
+DirectX::XMVECTOR cam_target;
+DirectX::XMVECTOR cam_up;
+
+struct CB_Per_Object
 {
-    MessageBoxA(NULL, message, "Error", MB_ICONEXCLAMATION);
-    ExitProcess(0);
-}
+    DirectX::XMMATRIX wvp;
+};
+
+CB_Per_Object cb_per_object;
 
 LRESULT CALLBACK WndProc(HWND window,
     UINT msg,
@@ -159,8 +174,8 @@ bool32 d3d11_init(HINSTANCE hInstance)
 
     ZeroMemory(&buffer_desc, sizeof(DXGI_MODE_DESC));
 
-    buffer_desc.Width = Width;
-    buffer_desc.Height = Height;
+    buffer_desc.Width = WIDTH;
+    buffer_desc.Height = HEIGHT;
     buffer_desc.RefreshRate.Numerator = 60;
     buffer_desc.RefreshRate.Denominator = 1;
     buffer_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -185,31 +200,34 @@ bool32 d3d11_init(HINSTANCE hInstance)
     D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0 };
     HRESULT hr;
 
-    //Create our SwapChain
     hr = D3D11CreateDeviceAndSwapChain(0, D3D_DRIVER_TYPE_HARDWARE, 0, flags, levels, ARRAYSIZE(levels),
         D3D11_SDK_VERSION, &swap_chain_desc, &swap_chain, &device, 0, &device_context);
     assert(SUCCEEDED(hr));
 
-    //Create our backbuffer
     ID3D11Texture2D* backbuffer;
     swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backbuffer);
 
-    //Create our Render Target
     device->CreateRenderTargetView(backbuffer, NULL, &render_target_view);
     backbuffer->Release();
 
-    //Set our Render Target
-    device_context->OMSetRenderTargets(1, &render_target_view, NULL);
+    D3D11_TEXTURE2D_DESC depth_stencil_desc = {};
+    depth_stencil_desc.Width = WIDTH;
+    depth_stencil_desc.Height = HEIGHT;
+    depth_stencil_desc.MipLevels = 1;
+    depth_stencil_desc.ArraySize = 1;
+    depth_stencil_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depth_stencil_desc.SampleDesc.Count = 1;
+    depth_stencil_desc.SampleDesc.Quality = 0;
+    depth_stencil_desc.Usage = D3D11_USAGE_DEFAULT;
+    depth_stencil_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+
+    device->CreateTexture2D(&depth_stencil_desc, 0, &depth_stencil_buffer);
+    device->CreateDepthStencilView(depth_stencil_buffer, 0, &depth_stencil_view);
+    device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
     return true;
 }
 
-void release_objects()
-{
-    swap_chain->Release();
-    device->Release();
-    device_context->Release();
-}
 bool32 scene_init()
 {
     HRESULT hr;
@@ -225,27 +243,44 @@ bool32 scene_init()
 
     Vertex v[] =
     {
-        Vertex( 0.0f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f ),
-        Vertex( 0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f ),
-        Vertex( -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f ),
+        Vertex( -0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f ),
+        Vertex( -0.5f,  0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f ),
+        Vertex(  0.5f,  0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f ),
+        Vertex(  0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f ),
     };
 
-    D3D11_BUFFER_DESC vertexBufferDesc = {};
+    DWORD indices[] = 
+    {
+        0, 1, 2,
+        0, 2, 3,
+    };
 
-    vertexBufferDesc.Usage = D3D11_USAGE_DEFAULT;
-    vertexBufferDesc.ByteWidth = sizeof(Vertex) * 3;
-    vertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    vertexBufferDesc.CPUAccessFlags = 0;
-    vertexBufferDesc.MiscFlags = 0;
+    D3D11_BUFFER_DESC index_buffer_desc = {};
+    index_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
+    index_buffer_desc.ByteWidth = sizeof(DWORD)*2*3;
+    index_buffer_desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    index_buffer_desc.CPUAccessFlags = 0;
+    index_buffer_desc.MiscFlags = 0;
 
-    D3D11_SUBRESOURCE_DATA vertexBufferData ={};
+    D3D11_SUBRESOURCE_DATA index_init_data ={};
+    index_init_data.pSysMem = indices;
+    hr = device->CreateBuffer(&index_buffer_desc, &index_init_data, &sq_index_buffer);
+    device_context->IASetIndexBuffer(sq_index_buffer, DXGI_FORMAT_R32_UINT, 0);
 
-    vertexBufferData.pSysMem = v;
-    hr = device->CreateBuffer(&vertexBufferDesc, &vertexBufferData, &triangle_vertex_buffer);
+    D3D11_BUFFER_DESC vert_buffer_desc = {};
+    vert_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
+    vert_buffer_desc.ByteWidth = sizeof(Vertex)*4;
+    vert_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    vert_buffer_desc.CPUAccessFlags = 0;
+    vert_buffer_desc.MiscFlags = 0;
+
+    D3D11_SUBRESOURCE_DATA vert_buffer_data = {};
+    vert_buffer_data.pSysMem = v;
+    hr = device->CreateBuffer( &vert_buffer_desc, &vert_buffer_data, &sq_vert_buffer);
 
     UINT stride = sizeof(Vertex);
     UINT offset = 0;
-    device_context->IASetVertexBuffers(0, 1, &triangle_vertex_buffer, &stride, &offset);
+    device_context->IASetVertexBuffers( 0, 1, &sq_vert_buffer, &stride, &offset );
 
     hr = device->CreateInputLayout(layout, numElements, d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
 
@@ -254,13 +289,26 @@ bool32 scene_init()
     device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     D3D11_VIEWPORT viewport = {};
-
     viewport.TopLeftX = 0;
     viewport.TopLeftY = 0;
-    viewport.Width = Width;
-    viewport.Height = Height;
-
+    viewport.Width = WIDTH;
+    viewport.Height = HEIGHT;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
     device_context->RSSetViewports(1, &viewport);
+
+    D3D11_BUFFER_DESC cb_buffer_desc = {};
+    cb_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
+    cb_buffer_desc.ByteWidth = sizeof(CB_Per_Object);
+    cb_buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+
+    hr = device->CreateBuffer(&cb_buffer_desc, 0, &cb_per_object_buffer);
+
+    cam_position = DirectX::XMVectorSet(0.0f, 0.0f, -0.5f, 0.0f);
+    cam_target = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
+    cam_up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    cam_view = DirectX::XMMatrixLookAtLH(cam_position, cam_target, cam_up);
+    cam_projection = DirectX::XMMatrixPerspectiveFovLH(0.4f*3.14f, (real32)(WIDTH)/(real32)HEIGHT, 1.0f, 1000.0f);
 
     return true;
 }
@@ -283,13 +331,23 @@ void scene_update()
 void scene_render()
 {
     real32 bgColor[4] = {(0.0f, 0.0f, 0.0f, 0.0f)};
-
     device_context->ClearRenderTargetView(render_target_view, bgColor);
-    device_context->Draw(3, 0);
+
+    device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+    world = DirectX::XMMatrixIdentity();
+    wvp = world*cam_view*cam_projection;
+    cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
+
+    device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
+    device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
+
+    device_context->DrawIndexed(6, 0, 0);
     swap_chain->Present(0, 0);
 }
 
-int messageloop(){
+int messageloop()
+{
     MSG msg;
     ZeroMemory(&msg, sizeof(MSG));
     while(true)
@@ -310,10 +368,8 @@ int messageloop(){
             DispatchMessage(&msg);
         }
         else{
-            scene_update
-        ();
-            scene_render
-        ();
+            scene_update();
+            scene_render();
             }
     }
     return msg.wParam;
@@ -325,7 +381,7 @@ int WINAPI WinMain(HINSTANCE hInstance,    //Main windows function
     int nShowCmd)
 {
 
-    if(!window_init(hInstance, nShowCmd, Width, Height, true))
+    if(!window_init(hInstance, nShowCmd, WIDTH, HEIGHT, true))
     {
         MessageBox(0, "Window Initialization - Failed",
             "Error", MB_OK);
@@ -347,8 +403,6 @@ int WINAPI WinMain(HINSTANCE hInstance,    //Main windows function
     }
     
     messageloop();
-
-    release_objects();
     
     return 0;
 }
