@@ -1,11 +1,15 @@
 #pragma comment (lib, "gdi32.lib")
 #pragma comment (lib, "user32.lib")
 #pragma comment (lib, "d3d11.lib")
+#pragma comment (lib, "dxguid")
+#pragma comment (lib, "dxgi")
 
 
 #include <stdint.h>
 #include <windows.h>
-#include <d3d11.h>
+// #include <d3d11.h>
+#include <d3d11_1.h>
+#include <dxgi1_3.h>
 #include <DirectXMath.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -50,9 +54,9 @@ D3D11_INPUT_ELEMENT_DESC layout[] =
 };
 UINT numElements = ARRAYSIZE(layout);
 
-IDXGISwapChain* swap_chain;
-ID3D11Device* device;
-ID3D11DeviceContext* device_context;
+IDXGISwapChain1* swap_chain;
+ID3D11Device1* device;
+ID3D11DeviceContext1* device_context;
 ID3D11RenderTargetView* render_target_view;
 
 ID3D11Buffer* sq_index_buffer;
@@ -99,7 +103,8 @@ DirectX::XMVECTOR cam_up;
 
 struct CB_Per_Object
 {
-    DirectX::XMMATRIX wvp;
+    DirectX::XMMATRIX wvp1;
+    DirectX::XMMATRIX wvp2;
 };
 
 CB_Per_Object cb_per_object;
@@ -210,7 +215,7 @@ bool32 d3d11_init(HINSTANCE hInstance)
     swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
     UINT flags = 0;
-    D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0 };
+    D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1 };
     HRESULT hr;
 
     hr = D3D11CreateDeviceAndSwapChain(0, D3D_DRIVER_TYPE_HARDWARE, 0, flags, levels, ARRAYSIZE(levels),
@@ -455,17 +460,17 @@ void scene_render()
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
     wvp = cube_1_world*cam_view*cam_projection;
-    cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
+    cb_per_object.wvp1 = DirectX::XMMatrixTranspose(wvp);
+    wvp = cube_2_world*cam_view*cam_projection;
+    cb_per_object.wvp2 = DirectX::XMMatrixTranspose(wvp);
+    
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
-    device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
+    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, 0, 1);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
 
-    wvp = cube_2_world*cam_view*cam_projection;
-    cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
-    device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
-    device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
+    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, sizeof(DirectX::XMMATRIX)/16, 1);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
