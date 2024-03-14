@@ -1,15 +1,13 @@
 #pragma comment (lib, "gdi32.lib")
 #pragma comment (lib, "user32.lib")
 #pragma comment (lib, "d3d11.lib")
-#pragma comment (lib, "dxguid")
 #pragma comment (lib, "dxgi")
 
 
 #include <stdint.h>
 #include <windows.h>
-// #include <d3d11.h>
-#include <d3d11_1.h>
-#include <dxgi1_3.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
 #include <DirectXMath.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -55,8 +53,8 @@ D3D11_INPUT_ELEMENT_DESC layout[] =
 UINT numElements = ARRAYSIZE(layout);
 
 IDXGISwapChain1* swap_chain;
-ID3D11Device1* device;
-ID3D11DeviceContext1* device_context;
+ID3D11Device* device;
+ID3D11DeviceContext* device_context;
 ID3D11RenderTargetView* render_target_view;
 
 ID3D11Buffer* sq_index_buffer;
@@ -103,8 +101,8 @@ DirectX::XMVECTOR cam_up;
 
 struct CB_Per_Object
 {
-    DirectX::XMMATRIX wvp1;
-    DirectX::XMMATRIX wvp2;
+    DirectX::XMMATRIX momo;
+    DirectX::XMMATRIX chaeyoung;
 };
 
 CB_Per_Object cb_per_object;
@@ -187,40 +185,40 @@ bool32 window_init(HINSTANCE hInstance,
 
 bool32 d3d11_init(HINSTANCE hInstance)
 {
-    //Describe our Buffer
-    DXGI_MODE_DESC buffer_desc;
-
-    ZeroMemory(&buffer_desc, sizeof(DXGI_MODE_DESC));
-
-    buffer_desc.Width = WIDTH;
-    buffer_desc.Height = HEIGHT;
-    buffer_desc.RefreshRate.Numerator = 60;
-    buffer_desc.RefreshRate.Denominator = 1;
-    buffer_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    buffer_desc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-    buffer_desc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
-    
-    //Describe our SwapChain
-    DXGI_SWAP_CHAIN_DESC swap_chain_desc; 
-        
-    ZeroMemory(&swap_chain_desc, sizeof(DXGI_SWAP_CHAIN_DESC));
-
-    swap_chain_desc.BufferDesc = buffer_desc;
-    swap_chain_desc.SampleDesc.Count = 1;
-    swap_chain_desc.SampleDesc.Quality = 0;
-    swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swap_chain_desc.BufferCount = 1;
-    swap_chain_desc.OutputWindow = window; 
-    swap_chain_desc.Windowed = TRUE; 
-    swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
     UINT flags = 0;
     D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1 };
     HRESULT hr;
 
-    hr = D3D11CreateDeviceAndSwapChain(0, D3D_DRIVER_TYPE_HARDWARE, 0, flags, levels, ARRAYSIZE(levels),
-        D3D11_SDK_VERSION, &swap_chain_desc, &swap_chain, &device, 0, &device_context);
-    assert(SUCCEEDED(hr));
+    hr = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE, 0, flags, levels, 
+        ARRAYSIZE(levels), D3D11_SDK_VERSION, &device, 0, &device_context);
+    AssertHR(hr);
+
+    IDXGIDevice2* dxgi_device;
+    hr = device->QueryInterface(__uuidof(IDXGIDevice2), (void **)&dxgi_device);
+      
+    IDXGIAdapter* dxgi_adapter;
+    hr = dxgi_device->GetParent(__uuidof(IDXGIAdapter), (void **)&dxgi_adapter);
+
+    IDXGIFactory2* dxgi_factory;
+    dxgi_adapter->GetParent(__uuidof(IDXGIFactory2), (void **)&dxgi_factory);
+
+    //Describe our SwapChain
+    DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = {};
+    swap_chain_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    swap_chain_desc.SampleDesc.Count = 1;
+    swap_chain_desc.SampleDesc.Quality = 0;
+    swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swap_chain_desc.BufferCount = 2;
+    swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+
+    hr = dxgi_factory->CreateSwapChainForHwnd((IUnknown*)device, window, &swap_chain_desc, 0, 0, &swap_chain);
+    AssertHR(hr);
+
+    dxgi_factory->Release();
+    dxgi_adapter->Release();
+    dxgi_device->Release();
+
+    swap_chain->GetDesc1(&swap_chain_desc);
 
     ID3D11Texture2D* backbuffer;
     swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backbuffer);
@@ -460,17 +458,17 @@ void scene_render()
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
     wvp = cube_1_world*cam_view*cam_projection;
-    cb_per_object.wvp1 = DirectX::XMMatrixTranspose(wvp);
-    wvp = cube_2_world*cam_view*cam_projection;
-    cb_per_object.wvp2 = DirectX::XMMatrixTranspose(wvp);
-    
+    cb_per_object.momo = DirectX::XMMatrixTranspose(wvp);
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
-    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, 0, 1);
+    device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
 
-    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, sizeof(DirectX::XMMATRIX)/16, 1);
+    wvp = cube_2_world*cam_view*cam_projection;
+    cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
+    device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
+    device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
@@ -507,7 +505,7 @@ int messageloop()
     return msg.wParam;
 }
 
-int WINAPI WinMain(HINSTANCE hInstance,    //Main windows function
+int WINAPI WinMain(HINSTANCE hInstance,
     HINSTANCE hPrevInstance, 
     LPSTR lpCmdLine,
     int nShowCmd)
@@ -519,14 +517,14 @@ int WINAPI WinMain(HINSTANCE hInstance,    //Main windows function
         return 0;
     }
 
-    if(!d3d11_init(hInstance))    //Initialize Direct3D
+    if(!d3d11_init(hInstance))
     {
         MessageBox(0, "Direct3D Initialization - Failed",
             "Error", MB_OK);
         return 0;
     }
 
-    if(!scene_init())    //Initialize our scene
+    if(!scene_init())
     {
         MessageBox(0, "Scene Initialization - Failed",
             "Error", MB_OK);
