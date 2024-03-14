@@ -7,12 +7,16 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <DirectXMath.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+// #define STBI_ONLY_PNG
 
 #define internal static
 #define local_persist static
 #define global_variable static
 
 #define assert(expression) if(expression == false) {*(int *)0 = 0;}
+#define AssertHR(hr) assert(SUCCEEDED(hr))
 
 typedef int32_t int32;
 typedef int64_t int64;
@@ -32,17 +36,17 @@ struct Vertex
 {
     Vertex(){}
     Vertex(float x, float y, float z,
-        float cr, float cg, float cb, float ca)
-        : pos(x,y,z), color(cr, cg, cb, ca){}
+        float u, float v)
+        : pos(x,y,z), tex_coord(u, v){}
 
     DirectX::XMFLOAT3 pos;
-    DirectX::XMFLOAT4 color;
+    DirectX::XMFLOAT2 tex_coord;
 };
 
 D3D11_INPUT_ELEMENT_DESC layout[] =
 {
     { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
-    { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
+    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
 };
 UINT numElements = ARRAYSIZE(layout);
 
@@ -62,6 +66,9 @@ ID3D11InputLayout* vertex_layout;
 
 ID3D11Buffer* cb_per_object_buffer;
 
+ID3D11Texture2D *momo_texture;
+ID3D11ShaderResourceView *momo_shader_resource_view;
+ID3D11SamplerState *momo_sampler_state;
 
 real32 red = 0.0f;
 real32 green = 0.0f;
@@ -73,11 +80,17 @@ int colormodb = 1;
 LPCTSTR WndClassName = "firstwindow";
 HWND window = NULL;
 
-const int WIDTH  = 300;
-const int HEIGHT = 300;
+const int WIDTH  = 1400;
+const int HEIGHT = 1050;
+
+DirectX::XMMATRIX cube_1_world;
+DirectX::XMMATRIX cube_2_world;
+DirectX::XMMATRIX rotation;
+DirectX::XMMATRIX scaling;
+DirectX::XMMATRIX translation;
+real32 rotation_state = 0.01f;
 
 DirectX::XMMATRIX wvp;
-DirectX::XMMATRIX world;
 DirectX::XMMATRIX cam_view;
 DirectX::XMMATRIX cam_projection;
 DirectX::XMVECTOR cam_position;
@@ -241,23 +254,74 @@ bool32 scene_init()
     device_context->VSSetShader(vertex_shader, 0, 0);
     device_context->PSSetShader(pixel_shader, 0, 0);
 
-    Vertex v[] =
-    {
-        Vertex( -0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f ),
-        Vertex( -0.5f,  0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f ),
-        Vertex(  0.5f,  0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f ),
-        Vertex(  0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f ),
-    };
-
-    DWORD indices[] = 
-    {
-        0, 1, 2,
-        0, 2, 3,
-    };
+        Vertex v[] =
+        {
+            // Front Face
+            Vertex(-1.0f, -1.0f, -1.0f, 0.0f, 1.0f),
+            Vertex(-1.0f,  1.0f, -1.0f, 0.0f, 0.0f),
+            Vertex( 1.0f,  1.0f, -1.0f, 1.0f, 0.0f),
+            Vertex( 1.0f, -1.0f, -1.0f, 1.0f, 1.0f),
+    
+            // Back Face
+            Vertex(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f),
+            Vertex( 1.0f, -1.0f, 1.0f, 0.0f, 1.0f),
+            Vertex( 1.0f,  1.0f, 1.0f, 0.0f, 0.0f),
+            Vertex(-1.0f,  1.0f, 1.0f, 1.0f, 0.0f),
+    
+            // Top Face
+            Vertex(-1.0f, 1.0f, -1.0f, 0.0f, 1.0f),
+            Vertex(-1.0f, 1.0f,  1.0f, 0.0f, 0.0f),
+            Vertex( 1.0f, 1.0f,  1.0f, 1.0f, 0.0f),
+            Vertex( 1.0f, 1.0f, -1.0f, 1.0f, 1.0f),
+    
+            // Bottom Face
+            Vertex(-1.0f, -1.0f, -1.0f, 1.0f, 1.0f),
+            Vertex( 1.0f, -1.0f, -1.0f, 0.0f, 1.0f),
+            Vertex( 1.0f, -1.0f,  1.0f, 0.0f, 0.0f),
+            Vertex(-1.0f, -1.0f,  1.0f, 1.0f, 0.0f),
+    
+            // Left Face
+            Vertex(-1.0f, -1.0f,  1.0f, 0.0f, 1.0f),
+            Vertex(-1.0f,  1.0f,  1.0f, 0.0f, 0.0f),
+            Vertex(-1.0f,  1.0f, -1.0f, 1.0f, 0.0f),
+            Vertex(-1.0f, -1.0f, -1.0f, 1.0f, 1.0f),
+    
+            // Right Face
+            Vertex( 1.0f, -1.0f, -1.0f, 0.0f, 1.0f),
+            Vertex( 1.0f,  1.0f, -1.0f, 0.0f, 0.0f),
+            Vertex( 1.0f,  1.0f,  1.0f, 1.0f, 0.0f),
+            Vertex( 1.0f, -1.0f,  1.0f, 1.0f, 1.0f),
+        };
+    
+        DWORD indices[] = {
+            // Front Face
+            0,  1,  2,
+            0,  2,  3,
+    
+            // Back Face
+            4,  5,  6,
+            4,  6,  7,
+    
+            // Top Face
+            8,  9, 10,
+            8, 10, 11,
+    
+            // Bottom Face
+            12, 13, 14,
+            12, 14, 15,
+    
+            // Left Face
+            16, 17, 18,
+            16, 18, 19,
+    
+            // Right Face
+            20, 21, 22,
+            20, 22, 23
+        };
 
     D3D11_BUFFER_DESC index_buffer_desc = {};
     index_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    index_buffer_desc.ByteWidth = sizeof(DWORD)*2*3;
+    index_buffer_desc.ByteWidth = sizeof(DWORD)*12*3;
     index_buffer_desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
     index_buffer_desc.CPUAccessFlags = 0;
     index_buffer_desc.MiscFlags = 0;
@@ -269,7 +333,7 @@ bool32 scene_init()
 
     D3D11_BUFFER_DESC vert_buffer_desc = {};
     vert_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    vert_buffer_desc.ByteWidth = sizeof(Vertex)*4;
+    vert_buffer_desc.ByteWidth = sizeof(Vertex)*24;
     vert_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     vert_buffer_desc.CPUAccessFlags = 0;
     vert_buffer_desc.MiscFlags = 0;
@@ -304,28 +368,83 @@ bool32 scene_init()
 
     hr = device->CreateBuffer(&cb_buffer_desc, 0, &cb_per_object_buffer);
 
-    cam_position = DirectX::XMVectorSet(0.0f, 0.0f, -0.5f, 0.0f);
+    cam_position = DirectX::XMVectorSet(0.0f, 3.0f, -8.0f, 0.0f);
     cam_target = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
     cam_up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     cam_view = DirectX::XMMatrixLookAtLH(cam_position, cam_target, cam_up);
-    cam_projection = DirectX::XMMatrixPerspectiveFovLH(0.4f*3.14f, (real32)(WIDTH)/(real32)HEIGHT, 1.0f, 1000.0f);
+    cam_projection = DirectX::XMMatrixPerspectiveFovLH(0.4f*3.14f, (real32)WIDTH/(real32)HEIGHT, 1.0f, 1000.0f);
+
+    int image_width;
+    int image_height;
+    int image_channels;
+    int image_desired_channels = 4;
+    unsigned char *image_momo_data = stbi_load("momo.png",
+                                         &image_width, 
+                                         &image_height, 
+                                         &image_channels, image_desired_channels);
+    assert(image_momo_data);
+    int image_pitch = image_width * 4;
+
+    D3D11_TEXTURE2D_DESC momo_texture_desc = {};
+    momo_texture_desc.Width = image_width;
+    momo_texture_desc.Height = image_height;
+    momo_texture_desc.MipLevels = 1;
+    momo_texture_desc.ArraySize = 1;
+    momo_texture_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    momo_texture_desc.SampleDesc.Count = 1;
+    momo_texture_desc.SampleDesc.Quality = 0;
+    momo_texture_desc.Usage = D3D11_USAGE_IMMUTABLE;
+    momo_texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA momo_subresource_data = {};
+    momo_subresource_data.pSysMem = image_momo_data;
+    momo_subresource_data.SysMemPitch = image_pitch;
+
+    hr = device->CreateTexture2D(&momo_texture_desc, &momo_subresource_data, &momo_texture);
+    AssertHR(hr);
+    hr = device->CreateShaderResourceView(momo_texture, 0, &momo_shader_resource_view);
+    AssertHR(hr);
+
+    D3D11_SAMPLER_DESC momo_sampler_desc = {};
+    momo_sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    momo_sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    momo_sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    momo_sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    momo_sampler_desc.MipLODBias = 0.0f;
+    momo_sampler_desc.MaxAnisotropy = 1;
+    momo_sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    momo_sampler_desc.BorderColor[0] = 1.0f;
+    momo_sampler_desc.BorderColor[1] = 1.0f;
+    momo_sampler_desc.BorderColor[2] = 1.0f;
+    momo_sampler_desc.BorderColor[3] = 1.0f;
+    momo_sampler_desc.MinLOD = -FLT_MAX;
+    momo_sampler_desc.MaxLOD = FLT_MAX;
+    
+    hr = device->CreateSamplerState(&momo_sampler_desc, &momo_sampler_state);
+    AssertHR(hr);
+
 
     return true;
 }
 
 void scene_update()
 {
-    //Update the colors of our scene
-    red += colormodr * 0.00005f;
-    green += colormodg * 0.00002f;
-    blue += colormodb * 0.00001f;
+    rotation_state += 0.0005f;
+    if (rotation_state > 6.28f)
+    {
+        rotation_state = 0.0f;
+    }
 
-    if(red >= 1.0f || red <= 0.0f)
-        colormodr *= -1;
-    if(green >= 1.0f || green <= 0.0f)
-        colormodg *= -1;
-    if(blue >= 1.0f || blue <= 0.0f)
-        colormodb *= -1;
+    cube_1_world = DirectX::XMMatrixIdentity();
+    DirectX::XMVECTOR rotation_axis = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
+    translation = DirectX::XMMatrixTranslation(0.0f, 0.0f, 4.0f);
+    cube_1_world = translation*rotation;
+
+    cube_2_world = DirectX::XMMatrixIdentity();
+    rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
+    scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
+    cube_2_world = rotation*scaling;
+
 }
 
 void scene_render()
@@ -335,14 +454,22 @@ void scene_render()
 
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-    world = DirectX::XMMatrixIdentity();
-    wvp = world*cam_view*cam_projection;
+    wvp = cube_1_world*cam_view*cam_projection;
     cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
-
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
     device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
+    device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
+    device_context->PSSetSamplers(0, 1, &momo_sampler_state);
+    device_context->DrawIndexed(36, 0, 0);
 
-    device_context->DrawIndexed(6, 0, 0);
+    wvp = cube_2_world*cam_view*cam_projection;
+    cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
+    device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
+    device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
+    device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
+    device_context->PSSetSamplers(0, 1, &momo_sampler_state);
+    device_context->DrawIndexed(36, 0, 0);
+
     swap_chain->Present(0, 0);
 }
 
@@ -380,7 +507,6 @@ int WINAPI WinMain(HINSTANCE hInstance,    //Main windows function
     LPSTR lpCmdLine,
     int nShowCmd)
 {
-
     if(!window_init(hInstance, nShowCmd, WIDTH, HEIGHT, true))
     {
         MessageBox(0, "Window Initialization - Failed",

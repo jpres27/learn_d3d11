@@ -6,20 +6,23 @@ cbuffer CB_Per_Object
 struct VS_OUTPUT
 {
     float4 Pos : SV_POSITION;
-    float4 Color : COLOR;
+    float2 TexCoord : TEXCOORD;
 };
 
-VS_OUTPUT vs(float4 inPos : POSITION, float4 inColor : COLOR)
+VS_OUTPUT vs(float4 inPos : POSITION, float2 inTexCoord : TEXCOORD)
 {
     VS_OUTPUT output;
 
     output.Pos = mul(inPos, wvp);
-    output.Color = inColor;
+    output.TexCoord = inTexCoord;
 
     return output;
 }
 
+Texture2D momo_tex;
+SamplerState momo_sampler;
+
 float4 ps(VS_OUTPUT input) : SV_TARGET
 {
-    return input.Color;
+    return momo_tex.Sample(momo_sampler, input.TexCoord);
 }
