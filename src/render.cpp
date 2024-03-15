@@ -1,13 +1,15 @@
 #pragma comment (lib, "gdi32.lib")
 #pragma comment (lib, "user32.lib")
 #pragma comment (lib, "d3d11.lib")
+#pragma comment (lib, "dxguid")
 #pragma comment (lib, "dxgi")
 
 
 #include <stdint.h>
 #include <windows.h>
-#include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi1_2.h>
+#include <dxgidebug.h>
 #include <DirectXMath.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -54,7 +56,7 @@ UINT numElements = ARRAYSIZE(layout);
 
 IDXGISwapChain1* swap_chain;
 ID3D11Device* device;
-ID3D11DeviceContext* device_context;
+ID3D11DeviceContext1* device_context;
 ID3D11RenderTargetView* render_target_view;
 
 ID3D11Buffer* sq_index_buffer;
@@ -101,8 +103,7 @@ DirectX::XMVECTOR cam_up;
 
 struct CB_Per_Object
 {
-    DirectX::XMMATRIX momo;
-    DirectX::XMMATRIX chaeyoung;
+    DirectX::XMMATRIX wvp;
 };
 
 CB_Per_Object cb_per_object;
@@ -185,13 +186,22 @@ bool32 window_init(HINSTANCE hInstance,
 
 bool32 d3d11_init(HINSTANCE hInstance)
 {
-    UINT flags = 0;
     D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1 };
     HRESULT hr;
 
-    hr = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE, 0, flags, levels, 
-        ARRAYSIZE(levels), D3D11_SDK_VERSION, &device, 0, &device_context);
+    ID3D11DeviceContext* temp_dc;
+
+    hr = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE, 0, 0, levels, 
+        ARRAYSIZE(levels), D3D11_SDK_VERSION, &device, 0, &temp_dc);
+    
     AssertHR(hr);
+
+    temp_dc->QueryInterface(__uuidof (ID3D11DeviceContext1), (void **)&device_context);
+    assert(device_context);
+    temp_dc->Release();
+
+    ID3D11InfoQueue* info;
+    device_context->QueryInterface(__uuidof (ID3D11InfoQueue), (void **)&info);
 
     IDXGIDevice2* dxgi_device;
     hr = device->QueryInterface(__uuidof(IDXGIDevice2), (void **)&dxgi_device);
@@ -205,41 +215,39 @@ bool32 d3d11_init(HINSTANCE hInstance)
     //Describe our SwapChain
     DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = {};
     swap_chain_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    swap_chain_desc.Stereo = FALSE;
     swap_chain_desc.SampleDesc.Count = 1;
     swap_chain_desc.SampleDesc.Quality = 0;
     swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swap_chain_desc.BufferCount = 2;
+    swap_chain_desc.Scaling = DXGI_SCALING_STRETCH;
     swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    swap_chain_desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
 
-    hr = dxgi_factory->CreateSwapChainForHwnd((IUnknown*)device, window, &swap_chain_desc, 0, 0, &swap_chain);
+    hr = dxgi_factory->CreateSwapChainForHwnd(device, window, &swap_chain_desc, 0, 0, &swap_chain);
     AssertHR(hr);
 
     dxgi_factory->Release();
     dxgi_adapter->Release();
     dxgi_device->Release();
 
-    swap_chain->GetDesc1(&swap_chain_desc);
-
     ID3D11Texture2D* backbuffer;
     swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backbuffer);
 
-    device->CreateRenderTargetView(backbuffer, NULL, &render_target_view);
+    D3D11_RENDER_TARGET_VIEW_DESC backbuffer_desc = {};
+    backbuffer_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    backbuffer_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+
+    device->CreateRenderTargetView(backbuffer, &backbuffer_desc, &render_target_view);
     backbuffer->Release();
 
     D3D11_TEXTURE2D_DESC depth_stencil_desc = {};
-    depth_stencil_desc.Width = WIDTH;
-    depth_stencil_desc.Height = HEIGHT;
-    depth_stencil_desc.MipLevels = 1;
-    depth_stencil_desc.ArraySize = 1;
+    backbuffer->GetDesc(&depth_stencil_desc);
     depth_stencil_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    depth_stencil_desc.SampleDesc.Count = 1;
-    depth_stencil_desc.SampleDesc.Quality = 0;
-    depth_stencil_desc.Usage = D3D11_USAGE_DEFAULT;
     depth_stencil_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 
     device->CreateTexture2D(&depth_stencil_desc, 0, &depth_stencil_buffer);
     device->CreateDepthStencilView(depth_stencil_buffer, 0, &depth_stencil_view);
-    device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
     return true;
 }
@@ -452,13 +460,19 @@ void scene_update()
 
 void scene_render()
 {
+    device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
+
     real32 bgColor[4] = {(0.0f, 0.0f, 0.0f, 0.0f)};
     device_context->ClearRenderTargetView(render_target_view, bgColor);
 
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
+    //UINT offset_0[] = {0};
+    //UINT offset_1[] = {(UINT)(sizeof(DirectX::XMMATRIX)/16)};
+    //UINT num_constants[] = {1}; 
+
     wvp = cube_1_world*cam_view*cam_projection;
-    cb_per_object.momo = DirectX::XMMatrixTranspose(wvp);
+    cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
     device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
