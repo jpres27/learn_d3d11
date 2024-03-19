@@ -52,10 +52,9 @@ D3D11_INPUT_ELEMENT_DESC layout[] =
     { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
     { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
 };
-UINT numElements = ARRAYSIZE(layout);
 
 IDXGISwapChain1* swap_chain;
-ID3D11Device* device;
+ID3D11Device1* device;
 ID3D11DeviceContext1* device_context;
 ID3D11RenderTargetView* render_target_view;
 
@@ -189,32 +188,36 @@ bool32 d3d11_init(HINSTANCE hInstance)
     D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1 };
     HRESULT hr;
 
-    ID3D11DeviceContext* temp_dc;
+    ID3D11Device* base_device;
+    ID3D11DeviceContext* base_dc;
 
     hr = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE, 0, 0, levels, 
-        ARRAYSIZE(levels), D3D11_SDK_VERSION, &device, 0, &temp_dc);
-    
+        ARRAYSIZE(levels), D3D11_SDK_VERSION, &base_device, 0, &base_dc);
     AssertHR(hr);
 
-    temp_dc->QueryInterface(__uuidof (ID3D11DeviceContext1), (void **)&device_context);
+    base_device->QueryInterface(__uuidof(ID3D11Device1), (void **)&device);
+    assert(device);
+    base_device->Release();
+
+    base_dc->QueryInterface(__uuidof(ID3D11DeviceContext1), (void **)&device_context);
     assert(device_context);
-    temp_dc->Release();
+    base_dc->Release();
 
-    ID3D11InfoQueue* info;
-    device_context->QueryInterface(__uuidof (ID3D11InfoQueue), (void **)&info);
-
-    IDXGIDevice2* dxgi_device;
-    hr = device->QueryInterface(__uuidof(IDXGIDevice2), (void **)&dxgi_device);
+    IDXGIDevice1* dxgi_device;
+    hr = device->QueryInterface(__uuidof(IDXGIDevice1), (void **)&dxgi_device);
+    AssertHR(hr);
       
     IDXGIAdapter* dxgi_adapter;
-    hr = dxgi_device->GetParent(__uuidof(IDXGIAdapter), (void **)&dxgi_adapter);
+    hr = dxgi_device->GetAdapter(&dxgi_adapter);
+    AssertHR(hr);
 
     IDXGIFactory2* dxgi_factory;
     dxgi_adapter->GetParent(__uuidof(IDXGIFactory2), (void **)&dxgi_factory);
+    AssertHR(hr);
 
     //Describe our SwapChain
     DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = {};
-    swap_chain_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    swap_chain_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     swap_chain_desc.Stereo = FALSE;
     swap_chain_desc.SampleDesc.Count = 1;
     swap_chain_desc.SampleDesc.Quality = 0;
@@ -234,12 +237,8 @@ bool32 d3d11_init(HINSTANCE hInstance)
     ID3D11Texture2D* backbuffer;
     swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backbuffer);
 
-    D3D11_RENDER_TARGET_VIEW_DESC backbuffer_desc = {};
-    backbuffer_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-    backbuffer_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-
-    device->CreateRenderTargetView(backbuffer, &backbuffer_desc, &render_target_view);
-    backbuffer->Release();
+    device->CreateRenderTargetView(backbuffer, 0, &render_target_view);
+    // backbuffer->Release();
 
     D3D11_TEXTURE2D_DESC depth_stencil_desc = {};
     backbuffer->GetDesc(&depth_stencil_desc);
@@ -339,7 +338,9 @@ bool32 scene_init()
 
     D3D11_SUBRESOURCE_DATA index_init_data ={};
     index_init_data.pSysMem = indices;
+
     hr = device->CreateBuffer(&index_buffer_desc, &index_init_data, &sq_index_buffer);
+    AssertHR(hr);
     device_context->IASetIndexBuffer(sq_index_buffer, DXGI_FORMAT_R32_UINT, 0);
 
     D3D11_BUFFER_DESC vert_buffer_desc = {};
@@ -351,13 +352,16 @@ bool32 scene_init()
 
     D3D11_SUBRESOURCE_DATA vert_buffer_data = {};
     vert_buffer_data.pSysMem = v;
-    hr = device->CreateBuffer( &vert_buffer_desc, &vert_buffer_data, &sq_vert_buffer);
+
+    hr = device->CreateBuffer(&vert_buffer_desc, &vert_buffer_data, &sq_vert_buffer);
+    AssertHR(hr);
 
     UINT stride = sizeof(Vertex);
     UINT offset = 0;
-    device_context->IASetVertexBuffers( 0, 1, &sq_vert_buffer, &stride, &offset );
+    device_context->IASetVertexBuffers(0, 1, &sq_vert_buffer, &stride, &offset);
 
-    hr = device->CreateInputLayout(layout, numElements, d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
+    hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
+    AssertHR(hr);
 
     device_context->IASetInputLayout(vertex_layout);
 
@@ -462,7 +466,7 @@ void scene_render()
 {
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
-    real32 bgColor[4] = {(0.0f, 0.0f, 0.0f, 0.0f)};
+    real32 bgColor[4] = {(0.0f, 0.2f, 0.2f, 1.0f)};
     device_context->ClearRenderTargetView(render_target_view, bgColor);
 
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
@@ -487,7 +491,7 @@ void scene_render()
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
 
-    swap_chain->Present(0, 0);
+    swap_chain->Present(1, 0);
 }
 
 int messageloop()

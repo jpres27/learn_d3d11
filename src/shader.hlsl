@@ -3,26 +3,26 @@ cbuffer CB_Per_Object
     float4x4 wvp;
 };
 
+Texture2D momo_tex;
+SamplerState momo_sampler;
+
 struct VS_OUTPUT
 {
-    float4 Pos : SV_POSITION;
-    float2 TexCoord : TEXCOORD;
+    float4 pos : SV_POSITION;
+    float2 tex_coord : TEXCOORD;
 };
 
-VS_OUTPUT vs(float4 inPos : POSITION, float2 inTexCoord : TEXCOORD)
+VS_OUTPUT vs(float4 in_pos : POSITION, float2 in_tex_coord : TEXCOORD)
 {
     VS_OUTPUT output;
 
-    output.Pos = mul(inPos, wvp);
-    output.TexCoord = inTexCoord;
+    output.pos = mul(in_pos, wvp);
+    output.tex_coord = in_tex_coord;
 
     return output;
 }
 
-Texture2D momo_tex;
-SamplerState momo_sampler;
-
 float4 ps(VS_OUTPUT input) : SV_TARGET
 {
-    return momo_tex.Sample(momo_sampler, input.TexCoord);
+    return momo_tex.Sample(momo_sampler, input.tex_coord);
 }
