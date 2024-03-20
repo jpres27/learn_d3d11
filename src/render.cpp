@@ -185,7 +185,12 @@ bool32 window_init(HINSTANCE hInstance,
 
 bool32 d3d11_init(HINSTANCE hInstance)
 {
-    D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1 };
+    D3D_FEATURE_LEVEL levels[] = 
+    {
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0
+    };
+
     HRESULT hr;
 
     ID3D11Device* base_device;
@@ -475,6 +480,9 @@ void scene_render()
     //UINT offset_1[] = {(UINT)(sizeof(DirectX::XMMATRIX)/16)};
     //UINT num_constants[] = {1}; 
 
+    device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
+    device_context->VSSetConstantBuffers1(0, 0, &cb_per_object_buffer, );
+
     wvp = cube_1_world*cam_view*cam_projection;
     cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
@@ -491,7 +499,7 @@ void scene_render()
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
 
-    swap_chain->Present(1, 0);
+    swap_chain->Present(0, 0);
 }
 
 int messageloop()
