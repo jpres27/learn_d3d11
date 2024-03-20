@@ -198,7 +198,11 @@ bool32 d3d11_init(HINSTANCE hInstance)
     ID3D11Device* base_device;
     ID3D11DeviceContext* base_dc;
 
-    UINT flags = D3D11_CREATE_DEVICE_DEBUG;
+    UINT flags = 0;
+    
+#if DEBUG
+    flags = D3D11_CREATE_DEVICE_DEBUG;
+#endif
 
     hr = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE, 0, flags, levels, 
         ARRAYSIZE(levels), D3D11_SDK_VERSION, &base_device, 0, &base_dc);
@@ -212,12 +216,6 @@ bool32 d3d11_init(HINSTANCE hInstance)
     assert(device_context);
     base_dc->Release();
 
-    ID3D11InfoQueue* info;
-    device->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&info);
-    info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-    info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, TRUE);
-    info->Release();
-
     IDXGIDevice1* dxgi_device;
     hr = device->QueryInterface(__uuidof(IDXGIDevice1), (void **)&dxgi_device);
     AssertHR(hr);
@@ -229,6 +227,20 @@ bool32 d3d11_init(HINSTANCE hInstance)
     IDXGIFactory2* dxgi_factory;
     dxgi_adapter->GetParent(__uuidof(IDXGIFactory2), (void **)&dxgi_factory);
     AssertHR(hr);
+
+#if DEBUG
+    ID3D11InfoQueue* info;
+    device->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&info);
+    info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+    info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, TRUE);
+    info->Release();
+
+    IDXGIInfoQueue* dxgi_info;
+    DXGIGetDebugInterface1(__uuidof(IDXGIInfoQueue), (void**)&dxgi_info);
+    dxgi_info->SetBreakOnSeverity(DXGI_DEBUG_ALL, DXGI_INFO_QUEUE_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+    dxgi_info->SetBreakOnSeverity(DXGI_DEBUG_ALL, DXGI_INFO_QUEUE_MESSAGE_SEVERITY_ERROR, TRUE);
+    dxgi_info->Release();
+#endif
 
     //Describe our SwapChain
     DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = {};
