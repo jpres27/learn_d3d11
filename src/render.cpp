@@ -102,10 +102,12 @@ DirectX::XMVECTOR cam_up;
 
 struct CB_Per_Object
 {
-    DirectX::XMMATRIX wvp;
+    DirectX::XMMATRIX rotate;
+    DirectX::XMMATRIX pad1;
+    DirectX::XMMATRIX pad2;
+    DirectX::XMMATRIX pad3;
+    DirectX::XMMATRIX orbit;
 };
-
-CB_Per_Object cb_per_object;
 
 LRESULT CALLBACK WndProc(HWND window,
     UINT msg,
@@ -196,7 +198,9 @@ bool32 d3d11_init(HINSTANCE hInstance)
     ID3D11Device* base_device;
     ID3D11DeviceContext* base_dc;
 
-    hr = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE, 0, 0, levels, 
+    UINT flags = D3D11_CREATE_DEVICE_DEBUG;
+
+    hr = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE, 0, flags, levels, 
         ARRAYSIZE(levels), D3D11_SDK_VERSION, &base_device, 0, &base_dc);
     AssertHR(hr);
 
@@ -207,6 +211,12 @@ bool32 d3d11_init(HINSTANCE hInstance)
     base_dc->QueryInterface(__uuidof(ID3D11DeviceContext1), (void **)&device_context);
     assert(device_context);
     base_dc->Release();
+
+    ID3D11InfoQueue* info;
+    device->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&info);
+    info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+    info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, TRUE);
+    info->Release();
 
     IDXGIDevice1* dxgi_device;
     hr = device->QueryInterface(__uuidof(IDXGIDevice1), (void **)&dxgi_device);
@@ -467,6 +477,11 @@ void scene_update()
 
 }
 
+inline internal uint32 round_up_pow_2(uint32 value, uint32 alignment)
+{
+    return((value + alignment - 1) & ~(alignment - 1));
+}
+
 void scene_render()
 {
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
@@ -476,25 +491,23 @@ void scene_render()
 
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-    //UINT offset_0[] = {0};
-    //UINT offset_1[] = {(UINT)(sizeof(DirectX::XMMATRIX)/16)};
-    //UINT num_constants[] = {1}; 
-
-    device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
-    device_context->VSSetConstantBuffers1(0, 0, &cb_per_object_buffer, );
-
+    CB_Per_Object cb_per_object = {};
     wvp = cube_1_world*cam_view*cam_projection;
-    cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
+    cb_per_object.rotate = DirectX::XMMatrixTranspose(wvp);
+    wvp = cube_2_world*cam_view*cam_projection;
+    cb_per_object.orbit = DirectX::XMMatrixTranspose(wvp);
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
-    device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
+
+    UINT offset = 0;
+    UINT size = (sizeof(cb_per_object.orbit)*4) / 16;
+
+    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
 
-    wvp = cube_2_world*cam_view*cam_projection;
-    cb_per_object.wvp = DirectX::XMMatrixTranspose(wvp);
-    device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
-    device_context->VSSetConstantBuffers(0, 1, &cb_per_object_buffer);
+    offset = (sizeof(cb_per_object.rotate)*4) / 16;
+    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
