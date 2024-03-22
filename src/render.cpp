@@ -73,6 +73,10 @@ ID3D11Texture2D *momo_texture;
 ID3D11ShaderResourceView *momo_shader_resource_view;
 ID3D11SamplerState *momo_sampler_state;
 
+ID3D11BlendState1* transparency;
+ID3D11RasterizerState1* ccw_cull_mode;
+ID3D11RasterizerState1* cw_cull_mode;
+
 real32 red = 0.0f;
 real32 green = 0.0f;
 real32 blue = 0.0f;
@@ -234,7 +238,10 @@ bool32 d3d11_init(HINSTANCE hInstance)
     info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE);
     info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, TRUE);
     info->Release();
+#endif
 
+    // TODO: Get DXGI debug layer to work by figuring out how to actually call getdebuginterface
+#if 0
     IDXGIInfoQueue* dxgi_info;
     DXGIGetDebugInterface1(__uuidof(IDXGIInfoQueue), (void**)&dxgi_info);
     dxgi_info->SetBreakOnSeverity(DXGI_DEBUG_ALL, DXGI_INFO_QUEUE_MESSAGE_SEVERITY_CORRUPTION, TRUE);
@@ -420,7 +427,7 @@ bool32 scene_init()
     int image_height;
     int image_channels;
     int image_desired_channels = 4;
-    unsigned char *image_momo_data = stbi_load("momo.png",
+    unsigned char *image_momo_data = stbi_load("rck_1.png",
                                          &image_width, 
                                          &image_height, 
                                          &image_channels, image_desired_channels);
@@ -464,6 +471,29 @@ bool32 scene_init()
     hr = device->CreateSamplerState(&momo_sampler_desc, &momo_sampler_state);
     AssertHR(hr);
 
+    D3D11_BLEND_DESC1 blend_desc = {};
+    D3D11_RENDER_TARGET_BLEND_DESC1 rt_blend_desc = {};
+    rt_blend_desc.BlendEnable = true;
+    rt_blend_desc.SrcBlend = D3D11_BLEND_SRC_COLOR;
+    rt_blend_desc.DestBlend = D3D11_BLEND_BLEND_FACTOR;
+    rt_blend_desc.BlendOp = D3D11_BLEND_OP_ADD;
+    rt_blend_desc.SrcBlendAlpha = D3D11_BLEND_ONE;
+    rt_blend_desc.DestBlendAlpha = D3D11_BLEND_ZERO;
+    rt_blend_desc.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    rt_blend_desc.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    blend_desc.AlphaToCoverageEnable = false;
+    blend_desc.RenderTarget[0] = rt_blend_desc;
+
+    device->CreateBlendState1(&blend_desc, &transparency);
+
+    D3D11_RASTERIZER_DESC1 cm_desc = {};
+    cm_desc.FillMode = D3D11_FILL_SOLID;
+    cm_desc.CullMode = D3D11_CULL_BACK;
+
+    cm_desc.FrontCounterClockwise = true;
+    device->CreateRasterizerState1(&cm_desc, &ccw_cull_mode);
+    cm_desc.FrontCounterClockwise = false;
+    device->CreateRasterizerState1(&cm_desc, &cw_cull_mode);
 
     return true;
 }
@@ -489,14 +519,40 @@ void scene_update()
 
 }
 
+internal real32 find_dist_from_cam(DirectX::XMMATRIX cube)
+{
+    DirectX::XMVECTOR cube_pos = DirectX::XMVectorZero();
+    cube_pos = DirectX::XMVector2TransformCoord(cube_pos, cube);
+
+    real32 dist_x = DirectX::XMVectorGetX(cube_pos) - DirectX::XMVectorGetX(cam_position);
+    real32 dist_y = DirectX::XMVectorGetY(cube_pos) - DirectX::XMVectorGetY(cam_position);
+    real32 dist_z = DirectX::XMVectorGetZ(cube_pos) - DirectX::XMVectorGetZ(cam_position);
+
+    real32 cube_dist = dist_x*dist_x + dist_y*dist_y + dist_z*dist_z;
+    return(cube_dist);
+}
+
 void scene_render()
 {
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
-    real32 bgColor[4] = {(0.0f, 0.2f, 0.2f, 1.0f)};
+    real32 bgColor[4] = {(0.0f, 0.0f, 0.0f, 0.0f)};
     device_context->ClearRenderTargetView(render_target_view, bgColor);
-
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+    real32 blend_factor[] = {0.75f, 0.75f, 0.75f, 1.0f};
+    device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
+    device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
+
+    real32 cube_1_dist = find_dist_from_cam(cube_1_world);
+    real32 cube_2_dist = find_dist_from_cam(cube_2_world);
+
+    if (cube_1_dist < cube_2_dist)
+    {
+        DirectX::XMMATRIX temp_matrix = cube_1_world;
+        cube_1_world = cube_2_world;
+        cube_2_world = temp_matrix;
+    }
 
     CB_Per_Object cb_per_object = {};
     wvp = cube_1_world*cam_view*cam_projection;
@@ -507,16 +563,25 @@ void scene_render()
 
     UINT offset = 0;
     UINT size = (sizeof(cb_per_object.orbit)*4) / 16;
-
     device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
+
+    // NOTE: CCW first to render the back side of the cube so that front can blend
+    // with it.
+    device_context->RSSetState(ccw_cull_mode);
+    device_context->DrawIndexed(36, 0, 0);
+    device_context->RSSetState(cw_cull_mode);
     device_context->DrawIndexed(36, 0, 0);
 
     offset = (sizeof(cb_per_object.rotate)*4) / 16;
     device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
+
+    device_context->RSSetState(ccw_cull_mode);
+    device_context->DrawIndexed(36, 0, 0);
+    device_context->RSSetState(cw_cull_mode);
     device_context->DrawIndexed(36, 0, 0);
 
     swap_chain->Present(0, 0);
