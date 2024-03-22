@@ -31,11 +31,6 @@ typedef float real32;
 typedef double real64;
 typedef real32 RGBA[4];
 
-struct vector3 { real32 x, y, z; };
-struct matrix { real32 m[4][4]; };
-
-matrix operator*(const matrix& m1, const matrix& m2);
-
 struct Vertex
 {
     Vertex(){}
@@ -111,6 +106,12 @@ struct CB_Per_Object
     DirectX::XMMATRIX pad2;
     DirectX::XMMATRIX pad3;
     DirectX::XMMATRIX orbit;
+};
+
+struct CB_Per_Frame 
+{
+    DirectX::XMMATRIX view;
+    DirectX::XMMATRIX projection;
 };
 
 LRESULT CALLBACK WndProc(HWND window,
