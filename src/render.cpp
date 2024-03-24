@@ -398,7 +398,7 @@ bool32 scene_init()
     hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
     AssertHR(hr);
 
-    device_context->IASetInputLayout(vertex_layout);
+    device_context->IASetInputLayout(vertex_layout); 
 
     device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
