@@ -532,6 +532,8 @@ void scene_render()
     cb_per_frame.view = cam_view;
     cb_per_frame.projection = cam_projection;
     device_context->UpdateSubresource(cb_per_frame_buffer, 0, 0, &cb_per_frame, 0, 0);
+    device_context->VSSetConstantBuffers(1, 1, &cb_per_frame_buffer);
+
 
     UINT offset = 0;
     UINT size = (sizeof(cb_per_object.orbit)*4) / 16;
