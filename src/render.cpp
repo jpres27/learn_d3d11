@@ -525,7 +525,7 @@ void scene_render()
     // wvp = cube_2_world*cam_view*cam_projection;
     // cb_per_object.orbit = DirectX::XMMatrixTranspose(wvp);
     cb_per_object.rotate = cube_1_world;
-    cb_per_object.orbit - cube_2_world;
+    cb_per_object.orbit = cube_2_world;
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
 
     CB_Per_Frame cb_per_frame = {};
