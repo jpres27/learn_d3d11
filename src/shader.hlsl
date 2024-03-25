@@ -23,8 +23,7 @@ VS_OUTPUT vs(float4 in_pos : POSITION, float2 in_tex_coord : TEXCOORD)
     VS_OUTPUT output;
     float4x4 wvp = mul(world, view);
     wvp = mul(wvp, projection);
-    wvp = transpose(wvp);
-    
+
     output.pos = mul(in_pos, wvp);
     output.tex_coord = in_tex_coord;
 

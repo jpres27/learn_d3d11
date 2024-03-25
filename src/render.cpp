@@ -524,13 +524,13 @@ void scene_render()
     // cb_per_object.rotate = DirectX::XMMatrixTranspose(wvp);
     // wvp = cube_2_world*cam_view*cam_projection;
     // cb_per_object.orbit = DirectX::XMMatrixTranspose(wvp);
-    cb_per_object.rotate = cube_1_world;
-    cb_per_object.orbit = cube_2_world;
+    cb_per_object.rotate = DirectX::XMMatrixTranspose(cube_1_world);
+    cb_per_object.orbit = DirectX::XMMatrixTranspose(cube_2_world);
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
 
     CB_Per_Frame cb_per_frame = {};
-    cb_per_frame.view = cam_view;
-    cb_per_frame.projection = cam_projection;
+    cb_per_frame.view = DirectX::XMMatrixTranspose(cam_view);
+    cb_per_frame.projection = DirectX::XMMatrixTranspose(cam_projection);
     device_context->UpdateSubresource(cb_per_frame_buffer, 0, 0, &cb_per_frame, 0, 0);
     device_context->VSSetConstantBuffers(1, 1, &cb_per_frame_buffer);
 
