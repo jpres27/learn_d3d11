@@ -63,6 +63,7 @@ ID3D11PixelShader* pixel_shader;
 ID3D11InputLayout* vertex_layout;
 
 ID3D11Buffer* cb_per_object_buffer;
+ID3D11Buffer* cb_per_frame_buffer;
 
 ID3D11Texture2D *momo_texture;
 ID3D11ShaderResourceView *momo_shader_resource_view;
@@ -407,12 +408,17 @@ bool32 scene_init()
     viewport.MaxDepth = 1.0f;
     device_context->RSSetViewports(1, &viewport);
 
-    D3D11_BUFFER_DESC cb_buffer_desc = {};
-    cb_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    cb_buffer_desc.ByteWidth = sizeof(CB_Per_Object);
-    cb_buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_BUFFER_DESC cb_per_object_bd = {};
+    cb_per_object_bd.Usage = D3D11_USAGE_DEFAULT;
+    cb_per_object_bd.ByteWidth = sizeof(CB_Per_Object);
+    cb_per_object_bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    hr = device->CreateBuffer(&cb_per_object_bd, 0, &cb_per_object_buffer);
 
-    hr = device->CreateBuffer(&cb_buffer_desc, 0, &cb_per_object_buffer);
+    D3D11_BUFFER_DESC cb_per_frame_bd = {};
+    cb_per_frame_bd.Usage = D3D11_USAGE_DEFAULT;
+    cb_per_frame_bd.ByteWidth = sizeof(CB_Per_Frame);
+    cb_per_frame_bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    hr = device->CreateBuffer(&cb_per_frame_bd, 0, &cb_per_frame_buffer);
 
     cam_position = DirectX::XMVectorSet(0.0f, 3.0f, -8.0f, 0.0f);
     cam_target = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
@@ -514,11 +520,18 @@ void scene_render()
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
     CB_Per_Object cb_per_object = {};
-    wvp = cube_1_world*cam_view*cam_projection;
-    cb_per_object.rotate = DirectX::XMMatrixTranspose(wvp);
-    wvp = cube_2_world*cam_view*cam_projection;
-    cb_per_object.orbit = DirectX::XMMatrixTranspose(wvp);
+    // wvp = cube_1_world*cam_view*cam_projection;
+    // cb_per_object.rotate = DirectX::XMMatrixTranspose(wvp);
+    // wvp = cube_2_world*cam_view*cam_projection;
+    // cb_per_object.orbit = DirectX::XMMatrixTranspose(wvp);
+    cb_per_object.rotate = cube_1_world;
+    cb_per_object.orbit - cube_2_world;
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
+
+    CB_Per_Frame cb_per_frame = {};
+    cb_per_frame.view = cam_view;
+    cb_per_frame.projection = cam_projection;
+    device_context->UpdateSubresource(cb_per_frame_buffer, 0, 0, &cb_per_frame, 0, 0);
 
     UINT offset = 0;
     UINT size = (sizeof(cb_per_object.orbit)*4) / 16;
