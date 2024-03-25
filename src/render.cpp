@@ -536,13 +536,13 @@ void scene_render()
 
 
     UINT offset = 0;
-    UINT size = (sizeof(cb_per_object.orbit)*4) / 16;
+    UINT size = (sizeof(cb_per_object.rotate)*4) / 16;
     device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
 
-    offset = (sizeof(cb_per_object.rotate)*4) / 16;
+    offset = (sizeof(cb_per_object.orbit)*4) / 16;
     device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
     device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &momo_sampler_state);
