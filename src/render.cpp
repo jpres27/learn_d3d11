@@ -65,9 +65,9 @@ ID3D11InputLayout* vertex_layout;
 ID3D11Buffer* cb_per_object_buffer;
 ID3D11Buffer* cb_per_frame_buffer;
 
-ID3D11Texture2D *momo_texture;
-ID3D11ShaderResourceView *momo_shader_resource_view;
-ID3D11SamplerState *momo_sampler_state;
+ID3D11Texture2D *rock_texture;
+ID3D11ShaderResourceView *rock_shader_resource_view;
+ID3D11SamplerState *rock_sampler_state;
 
 real32 red = 0.0f;
 real32 green = 0.0f;
@@ -430,48 +430,48 @@ bool32 scene_init()
     int image_height;
     int image_channels;
     int image_desired_channels = 4;
-    unsigned char *image_momo_data = stbi_load("rck_1.png",
+    unsigned char *image_rock_data = stbi_load("rck_1.png",
                                          &image_width, 
                                          &image_height, 
                                          &image_channels, image_desired_channels);
-    assert(image_momo_data);
+    assert(image_rock_data);
     int image_pitch = image_width * 4;
 
-    D3D11_TEXTURE2D_DESC momo_texture_desc = {};
-    momo_texture_desc.Width = image_width;
-    momo_texture_desc.Height = image_height;
-    momo_texture_desc.MipLevels = 1;
-    momo_texture_desc.ArraySize = 1;
-    momo_texture_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-    momo_texture_desc.SampleDesc.Count = 1;
-    momo_texture_desc.SampleDesc.Quality = 0;
-    momo_texture_desc.Usage = D3D11_USAGE_IMMUTABLE;
-    momo_texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    D3D11_SUBRESOURCE_DATA momo_subresource_data = {};
-    momo_subresource_data.pSysMem = image_momo_data;
-    momo_subresource_data.SysMemPitch = image_pitch;
+    D3D11_TEXTURE2D_DESC rock_texture_desc = {};
+    rock_texture_desc.Width = image_width;
+    rock_texture_desc.Height = image_height;
+    rock_texture_desc.MipLevels = 1;
+    rock_texture_desc.ArraySize = 1;
+    rock_texture_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    rock_texture_desc.SampleDesc.Count = 1;
+    rock_texture_desc.SampleDesc.Quality = 0;
+    rock_texture_desc.Usage = D3D11_USAGE_IMMUTABLE;
+    rock_texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA rock_subresource_data = {};
+    rock_subresource_data.pSysMem = image_rock_data;
+    rock_subresource_data.SysMemPitch = image_pitch;
 
-    hr = device->CreateTexture2D(&momo_texture_desc, &momo_subresource_data, &momo_texture);
+    hr = device->CreateTexture2D(&rock_texture_desc, &rock_subresource_data, &rock_texture);
     AssertHR(hr);
-    hr = device->CreateShaderResourceView(momo_texture, 0, &momo_shader_resource_view);
+    hr = device->CreateShaderResourceView(rock_texture, 0, &rock_shader_resource_view);
     AssertHR(hr);
 
-    D3D11_SAMPLER_DESC momo_sampler_desc = {};
-    momo_sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-    momo_sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-    momo_sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-    momo_sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-    momo_sampler_desc.MipLODBias = 0.0f;
-    momo_sampler_desc.MaxAnisotropy = 1;
-    momo_sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-    momo_sampler_desc.BorderColor[0] = 1.0f;
-    momo_sampler_desc.BorderColor[1] = 1.0f;
-    momo_sampler_desc.BorderColor[2] = 1.0f;
-    momo_sampler_desc.BorderColor[3] = 1.0f;
-    momo_sampler_desc.MinLOD = -FLT_MAX;
-    momo_sampler_desc.MaxLOD = FLT_MAX;
+    D3D11_SAMPLER_DESC rock_sampler_desc = {};
+    rock_sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    rock_sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    rock_sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    rock_sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    rock_sampler_desc.MipLODBias = 0.0f;
+    rock_sampler_desc.MaxAnisotropy = 1;
+    rock_sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    rock_sampler_desc.BorderColor[0] = 1.0f;
+    rock_sampler_desc.BorderColor[1] = 1.0f;
+    rock_sampler_desc.BorderColor[2] = 1.0f;
+    rock_sampler_desc.BorderColor[3] = 1.0f;
+    rock_sampler_desc.MinLOD = -FLT_MAX;
+    rock_sampler_desc.MaxLOD = FLT_MAX;
     
-    hr = device->CreateSamplerState(&momo_sampler_desc, &momo_sampler_state);
+    hr = device->CreateSamplerState(&rock_sampler_desc, &rock_sampler_state);
     AssertHR(hr);
 
     return true;
@@ -486,13 +486,14 @@ void scene_update()
     }
 
     cube_1_world = DirectX::XMMatrixIdentity();
-    DirectX::XMVECTOR rotation_axis = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-    rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
-    translation = DirectX::XMMatrixTranslation(0.0f, 0.0f, 4.0f);
+    DirectX::XMVECTOR rotation_axis_1 = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+    rotation = DirectX::XMMatrixRotationAxis(rotation_axis_1, rotation_state);
+    translation = DirectX::XMMatrixTranslation(0.0f, 4.0f, 0.0f);
     cube_1_world = translation*rotation;
 
     cube_2_world = DirectX::XMMatrixIdentity();
-    rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
+    DirectX::XMVECTOR rotation_axis_2 = DirectX::XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
+    rotation = DirectX::XMMatrixRotationAxis(rotation_axis_2, -rotation_state);
     scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
     cube_2_world = rotation*scaling;
 
@@ -520,10 +521,6 @@ void scene_render()
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
     CB_Per_Object cb_per_object = {};
-    // wvp = cube_1_world*cam_view*cam_projection;
-    // cb_per_object.rotate = DirectX::XMMatrixTranspose(wvp);
-    // wvp = cube_2_world*cam_view*cam_projection;
-    // cb_per_object.orbit = DirectX::XMMatrixTranspose(wvp);
     cb_per_object.rotate = DirectX::XMMatrixTranspose(cube_1_world);
     cb_per_object.orbit = DirectX::XMMatrixTranspose(cube_2_world);
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
@@ -538,14 +535,14 @@ void scene_render()
     UINT offset = 0;
     UINT size = (sizeof(cb_per_object.rotate)*4) / 16;
     device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-    device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
-    device_context->PSSetSamplers(0, 1, &momo_sampler_state);
+    device_context->PSSetShaderResources(0, 1, &rock_shader_resource_view);
+    device_context->PSSetSamplers(0, 1, &rock_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
 
     offset = (sizeof(cb_per_object.orbit)*4) / 16;
     device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-    device_context->PSSetShaderResources(0, 1, &momo_shader_resource_view);
-    device_context->PSSetSamplers(0, 1, &momo_sampler_state);
+    device_context->PSSetShaderResources(0, 1, &rock_shader_resource_view);
+    device_context->PSSetSamplers(0, 1, &rock_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
 
     swap_chain->Present(0, 0);

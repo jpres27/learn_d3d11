@@ -9,8 +9,8 @@ cbuffer Cb_Per_Frame : register(b1)
     float4x4 projection;
 };
 
-Texture2D momo_tex;
-SamplerState momo_sampler;
+Texture2D rock_tex;
+SamplerState rock_sampler;
 
 struct VS_OUTPUT
 {
@@ -32,5 +32,5 @@ VS_OUTPUT vs(float4 in_pos : POSITION, float2 in_tex_coord : TEXCOORD)
 
 float4 ps(VS_OUTPUT input) : SV_TARGET
 {
-    return momo_tex.Sample(momo_sampler, input.tex_coord);
+    return rock_tex.Sample(rock_sampler, input.tex_coord);
 }
