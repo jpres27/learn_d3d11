@@ -11,6 +11,8 @@
 #include <dxgi1_2.h>
 #include <dxgidebug.h>
 #include <DirectXMath.h>
+#include <time.h>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 // #define STBI_ONLY_PNG
@@ -82,13 +84,6 @@ HWND window = NULL;
 const int WIDTH  = 1400;
 const int HEIGHT = 1050;
 
-DirectX::XMMATRIX cube_1_world;
-DirectX::XMMATRIX cube_2_world;
-DirectX::XMMATRIX rotation;
-DirectX::XMMATRIX scaling;
-DirectX::XMMATRIX translation;
-real32 rotation_state = 0.01f;
-
 DirectX::XMMATRIX wvp;
 DirectX::XMMATRIX cam_view;
 DirectX::XMMATRIX cam_projection;
@@ -96,13 +91,60 @@ DirectX::XMVECTOR cam_position;
 DirectX::XMVECTOR cam_target;
 DirectX::XMVECTOR cam_up;
 
+// Constant buffers consist of shader constants which are 16 bytes (4*32-buit components)
+// and when using offsets to bind various parts of a CB it must be a multiple of 16
+// constants in the range [0, 4096]
 struct CB_Per_Object
 {
-    DirectX::XMMATRIX rotate;
+    DirectX::XMMATRIX cube1; // 64 bytes
     DirectX::XMMATRIX pad1;
     DirectX::XMMATRIX pad2;
-    DirectX::XMMATRIX pad3;
-    DirectX::XMMATRIX orbit;
+    DirectX::XMMATRIX pad3; //256 bytes (16 shader constants)
+
+    DirectX::XMMATRIX cube2;
+    DirectX::XMMATRIX pad4;
+    DirectX::XMMATRIX pad5;
+    DirectX::XMMATRIX pad6; // 512 bytes
+
+    DirectX::XMMATRIX cube3;
+    DirectX::XMMATRIX pad7;
+    DirectX::XMMATRIX pad8;
+    DirectX::XMMATRIX pad9;
+
+    DirectX::XMMATRIX cube4;
+    DirectX::XMMATRIX pad10;
+    DirectX::XMMATRIX pad11;
+    DirectX::XMMATRIX pad12; // 1024 bytes
+
+    DirectX::XMMATRIX cube5;
+    DirectX::XMMATRIX pad13;
+    DirectX::XMMATRIX pad14;
+    DirectX::XMMATRIX pad15;
+
+    DirectX::XMMATRIX cube6;
+    DirectX::XMMATRIX pad16;
+    DirectX::XMMATRIX pad17;
+    DirectX::XMMATRIX pad18;
+
+    DirectX::XMMATRIX cube7;
+    DirectX::XMMATRIX pad19;
+    DirectX::XMMATRIX pad20;
+    DirectX::XMMATRIX pad21;
+
+    DirectX::XMMATRIX cube8;
+    DirectX::XMMATRIX pad22;
+    DirectX::XMMATRIX pad23;
+    DirectX::XMMATRIX pad24;
+
+    DirectX::XMMATRIX cube9;
+    DirectX::XMMATRIX pad25;
+    DirectX::XMMATRIX pad26;
+    DirectX::XMMATRIX pad27;
+
+    DirectX::XMMATRIX cube10;
+    DirectX::XMMATRIX pad28;
+    DirectX::XMMATRIX pad29;
+    DirectX::XMMATRIX pad30; // 2560 bytes
 };
 
 struct CB_Per_Frame 
@@ -477,14 +519,18 @@ bool32 scene_init()
     return true;
 }
 
-void scene_update()
+void scene_update(uint32 num_cubes, DirectX::XMMATRIX *cubes)
 {
+    assert(num_cubes > 0 && num_cubes < 11);
+
+    real32 rotation_state = 0.01f;
     rotation_state += 0.0005f;
     if (rotation_state > 6.28f)
     {
         rotation_state = 0.0f;
     }
 
+#if 0
     cube_1_world = DirectX::XMMatrixIdentity();
     DirectX::XMVECTOR rotation_axis_1 = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
     rotation = DirectX::XMMatrixRotationAxis(rotation_axis_1, rotation_state);
@@ -496,6 +542,29 @@ void scene_update()
     rotation = DirectX::XMMatrixRotationAxis(rotation_axis_2, -rotation_state);
     scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
     cube_2_world = rotation*scaling;
+#endif
+
+    DirectX::XMMATRIX translation;
+    DirectX::XMVECTOR rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+    DirectX::XMMATRIX rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
+
+    for(uint32 i = 0; i < num_cubes; ++i)
+    {
+        cubes[i] = DirectX::XMMatrixIdentity();
+        if(i % 2 == 0) 
+        {
+            real32 x_translate = i + 4.0f;
+            translation = DirectX::XMMatrixTranslation(x_translate, 0.0f, 0.0f);
+        }
+        else
+        {
+            real32 y_translate = i + 4.0f;
+            translation = DirectX::XMMatrixTranslation(0.0f, y_translate, 0.0f);
+        }
+        cubes[i] = translation*rotation;
+    }
+
+
 
 }
 
@@ -512,7 +581,7 @@ internal real32 find_dist_from_cam(DirectX::XMMATRIX cube)
     return(cube_dist);
 }
 
-void scene_render()
+void scene_render(uint32 num_cubes, DirectX::XMMATRIX *cubes)
 {
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
@@ -520,10 +589,17 @@ void scene_render()
     device_context->ClearRenderTargetView(render_target_view, bgColor);
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
+#if 0
     CB_Per_Object cb_per_object = {};
-    cb_per_object.rotate = DirectX::XMMatrixTranspose(cube_1_world);
-    cb_per_object.orbit = DirectX::XMMatrixTranspose(cube_2_world);
+    cb_per_object.cube1 = DirectX::XMMatrixTranspose(cube_1_world);
+    cb_per_object.cube2 = DirectX::XMMatrixTranspose(cube_2_world);
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
+#endif
+
+    for(uint32 i = 0; i < num_cubes; ++i)
+    {
+        // TODO: Transpose and load each cube into the constant buffer, then call UpdateSubresource
+    }
 
     CB_Per_Frame cb_per_frame = {};
     cb_per_frame.view = DirectX::XMMatrixTranspose(cam_view);
@@ -531,15 +607,14 @@ void scene_render()
     device_context->UpdateSubresource(cb_per_frame_buffer, 0, 0, &cb_per_frame, 0, 0);
     device_context->VSSetConstantBuffers(1, 1, &cb_per_frame_buffer);
 
-
     UINT offset = 0;
-    UINT size = (sizeof(cb_per_object.rotate)*4) / 16;
+    UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
     device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
     device_context->PSSetShaderResources(0, 1, &rock_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &rock_sampler_state);
     device_context->DrawIndexed(36, 0, 0);
 
-    offset = (sizeof(cb_per_object.orbit)*4) / 16;
+    offset = (sizeof(cb_per_object.cube2)*4) / 16;
     device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
     device_context->PSSetShaderResources(0, 1, &rock_shader_resource_view);
     device_context->PSSetSamplers(0, 1, &rock_sampler_state);
@@ -548,7 +623,7 @@ void scene_render()
     swap_chain->Present(0, 0);
 }
 
-int messageloop()
+int messageloop(uint32 num_cubes, DirectX::XMMATRIX *cubes)
 {
     MSG msg;
     ZeroMemory(&msg, sizeof(MSG));
@@ -570,8 +645,8 @@ int messageloop()
             DispatchMessage(&msg);
         }
         else{
-            scene_update();
-            scene_render();
+            scene_update(num_cubes, cubes);
+            scene_render(num_cubes, cubes);
             }
     }
     return msg.wParam;
@@ -582,28 +657,16 @@ int WINAPI WinMain(HINSTANCE hInstance,
     LPSTR lpCmdLine,
     int nShowCmd)
 {
-    if(!window_init(hInstance, nShowCmd, WIDTH, HEIGHT, true))
-    {
-        MessageBox(0, "Window Initialization - Failed",
-            "Error", MB_OK);
-        return 0;
-    }
 
-    if(!d3d11_init(hInstance))
-    {
-        MessageBox(0, "Direct3D Initialization - Failed",
-            "Error", MB_OK);
-        return 0;
-    }
+    srand((unsigned int)time(0));
+    uint32 num_cubes = (rand() % 10) + 1;
 
-    if(!scene_init())
-    {
-        MessageBox(0, "Scene Initialization - Failed",
-            "Error", MB_OK);
-        return 0;
-    }
-    
-    messageloop();
+    DirectX::XMMATRIX cubes[num_cubes];
+
+    window_init(hInstance, nShowCmd, WIDTH, HEIGHT, true);
+    d3d11_init(hInstance);
+    scene_init();
+    messageloop(num_cubes, cubes);
     
     return 0;
 }
