@@ -483,7 +483,6 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     cam_view = DirectX::XMMatrixLookAtLH(cam_position, cam_target, cam_up);
     cam_projection = DirectX::XMMatrixPerspectiveFovLH(0.4f*3.14f, (real32)WIDTH/(real32)HEIGHT, 1.0f, 1000.0f);
 
-    int num_textures = 10;
     char *filenames[10];
     filenames[0] = "01.png";
     filenames[1] = "02.png";
@@ -519,7 +518,7 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     int image_channels;
     int image_desired_channels = 4;
     int image_pitch;
-    for(int i = 0; i < num_textures; ++i)
+    for(int i = 0; i < 10; ++i)
     {
         unsigned char *image_data = stbi_load(shuffled_filenames[i],
                                             &image_width, 
