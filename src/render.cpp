@@ -13,6 +13,8 @@
 #include <DirectXMath.h>
 #include <time.h>
 
+#include "strings.h"
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 // #define STBI_ONLY_PNG
@@ -23,6 +25,7 @@
 
 #define assert(expression) if(expression == false) {*(int *)0 = 0;}
 #define AssertHR(hr) assert(SUCCEEDED(hr))
+#define array_count(array) (sizeof(array) / sizeof((array)[0]))
 
 typedef int32_t int32;
 typedef int64_t int64;
@@ -67,9 +70,12 @@ ID3D11InputLayout* vertex_layout;
 ID3D11Buffer* cb_per_object_buffer;
 ID3D11Buffer* cb_per_frame_buffer;
 
-ID3D11Texture2D *rock_texture;
-ID3D11ShaderResourceView *rock_shader_resource_view;
-ID3D11SamplerState *rock_sampler_state;
+struct Texture_Info
+{
+    ID3D11Texture2D *texture;
+    ID3D11ShaderResourceView *shader_resource_view;
+    ID3D11SamplerState *sampler_state;
+};
 
 real32 red = 0.0f;
 real32 green = 0.0f;
@@ -90,6 +96,8 @@ DirectX::XMMATRIX cam_projection;
 DirectX::XMVECTOR cam_position;
 DirectX::XMVECTOR cam_target;
 DirectX::XMVECTOR cam_up;
+
+real32 rotation_state = 0.01f;
 
 // Constant buffers consist of shader constants which are 16 bytes (4*32-buit components)
 // and when using offsets to bind various parts of a CB it must be a multiple of 16
@@ -176,7 +184,20 @@ LRESULT CALLBACK WndProc(HWND window,
         lParam);
 }
 
-bool32 window_init(HINSTANCE hInstance,
+internal real32 find_dist_from_cam(DirectX::XMMATRIX cube)
+{
+    DirectX::XMVECTOR cube_pos = DirectX::XMVectorZero();
+    cube_pos = DirectX::XMVector2TransformCoord(cube_pos, cube);
+
+    real32 dist_x = DirectX::XMVectorGetX(cube_pos) - DirectX::XMVectorGetX(cam_position);
+    real32 dist_y = DirectX::XMVectorGetY(cube_pos) - DirectX::XMVectorGetY(cam_position);
+    real32 dist_z = DirectX::XMVectorGetZ(cube_pos) - DirectX::XMVectorGetZ(cam_position);
+
+    real32 cube_dist = dist_x*dist_x + dist_y*dist_y + dist_z*dist_z;
+    return(cube_dist);
+}
+
+void window_init(HINSTANCE hInstance,
     int ShowWnd,
     int width, int height,
     bool32 windowed)
@@ -200,7 +221,6 @@ bool32 window_init(HINSTANCE hInstance,
     {
         MessageBox(NULL, "Error registering class",    
             "Error", MB_OK | MB_ICONERROR);
-        return 1;
     }
 
     window = CreateWindowEx(
@@ -220,16 +240,13 @@ bool32 window_init(HINSTANCE hInstance,
     {
         MessageBox(NULL, "Error creating window",
             "Error", MB_OK | MB_ICONERROR);
-        return 1;
     }
 
     ShowWindow(window, ShowWnd);
     UpdateWindow(window);
-
-    return true;
 }
 
-bool32 d3d11_init(HINSTANCE hInstance)
+void d3d11_init(HINSTANCE hInstance)
 {
     D3D_FEATURE_LEVEL levels[] = 
     {
@@ -321,11 +338,9 @@ bool32 d3d11_init(HINSTANCE hInstance)
 
     device->CreateTexture2D(&depth_stencil_desc, 0, &depth_stencil_buffer);
     device->CreateDepthStencilView(depth_stencil_buffer, 0, &depth_stencil_view);
-
-    return true;
 }
 
-bool32 scene_init()
+void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
 {
     HRESULT hr;
 
@@ -462,68 +477,83 @@ bool32 scene_init()
     cb_per_frame_bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     hr = device->CreateBuffer(&cb_per_frame_bd, 0, &cb_per_frame_buffer);
 
-    cam_position = DirectX::XMVectorSet(0.0f, 3.0f, -8.0f, 0.0f);
+    cam_position = DirectX::XMVectorSet(10.0f, 3.0f, -35.0f, 0.0f);
     cam_target = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
     cam_up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     cam_view = DirectX::XMMatrixLookAtLH(cam_position, cam_target, cam_up);
     cam_projection = DirectX::XMMatrixPerspectiveFovLH(0.4f*3.14f, (real32)WIDTH/(real32)HEIGHT, 1.0f, 1000.0f);
 
+    int num_textures = 10;
+    char *filenames[10];
+    filenames[0] = "01.png";
+    filenames[1] = "02.png";
+    filenames[2] = "03.png";
+    filenames[3] = "04.png";
+    filenames[4] = "05.png";
+    filenames[5] = "06.png";
+    filenames[6] = "07.png";
+    filenames[7] = "08.png";
+    filenames[8] = "09.png";
+    filenames[9] = "10.png";
+
     int image_width;
     int image_height;
     int image_channels;
     int image_desired_channels = 4;
-    unsigned char *image_rock_data = stbi_load("rck_1.png",
-                                         &image_width, 
-                                         &image_height, 
-                                         &image_channels, image_desired_channels);
-    assert(image_rock_data);
-    int image_pitch = image_width * 4;
+    int image_pitch;
+    for(int i = 0; i < num_textures; ++i)
+    {
+        unsigned char *image_data = stbi_load(filenames[i],
+                                            &image_width, 
+                                            &image_height, 
+                                            &image_channels, image_desired_channels);
+        assert(image_data);
+        image_pitch = image_width * 4;
 
-    D3D11_TEXTURE2D_DESC rock_texture_desc = {};
-    rock_texture_desc.Width = image_width;
-    rock_texture_desc.Height = image_height;
-    rock_texture_desc.MipLevels = 1;
-    rock_texture_desc.ArraySize = 1;
-    rock_texture_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-    rock_texture_desc.SampleDesc.Count = 1;
-    rock_texture_desc.SampleDesc.Quality = 0;
-    rock_texture_desc.Usage = D3D11_USAGE_IMMUTABLE;
-    rock_texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    D3D11_SUBRESOURCE_DATA rock_subresource_data = {};
-    rock_subresource_data.pSysMem = image_rock_data;
-    rock_subresource_data.SysMemPitch = image_pitch;
+        D3D11_TEXTURE2D_DESC texture_desc = {};
+        texture_desc.Width = image_width;
+        texture_desc.Height = image_height;
+        texture_desc.MipLevels = 1;
+        texture_desc.ArraySize = 1;
+        texture_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        texture_desc.SampleDesc.Count = 1;
+        texture_desc.SampleDesc.Quality = 0;
+        texture_desc.Usage = D3D11_USAGE_IMMUTABLE;
+        texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        
+        D3D11_SUBRESOURCE_DATA subresource_data = {};
+        subresource_data.pSysMem = image_data;
+        subresource_data.SysMemPitch = image_pitch;
 
-    hr = device->CreateTexture2D(&rock_texture_desc, &rock_subresource_data, &rock_texture);
-    AssertHR(hr);
-    hr = device->CreateShaderResourceView(rock_texture, 0, &rock_shader_resource_view);
-    AssertHR(hr);
+        hr = device->CreateTexture2D(&texture_desc, &subresource_data, &texture_infos[i].texture);
+        AssertHR(hr);
+        hr = device->CreateShaderResourceView(texture_infos[i].texture, 0, &texture_infos[i].shader_resource_view);
+        AssertHR(hr);
 
-    D3D11_SAMPLER_DESC rock_sampler_desc = {};
-    rock_sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-    rock_sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-    rock_sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-    rock_sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-    rock_sampler_desc.MipLODBias = 0.0f;
-    rock_sampler_desc.MaxAnisotropy = 1;
-    rock_sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-    rock_sampler_desc.BorderColor[0] = 1.0f;
-    rock_sampler_desc.BorderColor[1] = 1.0f;
-    rock_sampler_desc.BorderColor[2] = 1.0f;
-    rock_sampler_desc.BorderColor[3] = 1.0f;
-    rock_sampler_desc.MinLOD = -FLT_MAX;
-    rock_sampler_desc.MaxLOD = FLT_MAX;
-    
-    hr = device->CreateSamplerState(&rock_sampler_desc, &rock_sampler_state);
-    AssertHR(hr);
-
-    return true;
+        D3D11_SAMPLER_DESC sampler_desc = {};
+        sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler_desc.MipLODBias = 0.0f;
+        sampler_desc.MaxAnisotropy = 1;
+        sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+        sampler_desc.BorderColor[0] = 1.0f;
+        sampler_desc.BorderColor[1] = 1.0f;
+        sampler_desc.BorderColor[2] = 1.0f;
+        sampler_desc.BorderColor[3] = 1.0f;
+        sampler_desc.MinLOD = -FLT_MAX;
+        sampler_desc.MaxLOD = FLT_MAX;
+        
+        hr = device->CreateSamplerState(&sampler_desc, &texture_infos[i].sampler_state);
+        AssertHR(hr);
+    }
 }
 
 void scene_update(uint32 num_cubes, DirectX::XMMATRIX *cubes)
 {
     assert(num_cubes > 0 && num_cubes < 11);
 
-    real32 rotation_state = 0.01f;
     rotation_state += 0.0005f;
     if (rotation_state > 6.28f)
     {
@@ -546,42 +576,28 @@ void scene_update(uint32 num_cubes, DirectX::XMMATRIX *cubes)
 
     DirectX::XMMATRIX translation;
     DirectX::XMVECTOR rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
-    DirectX::XMMATRIX rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
 
     for(uint32 i = 0; i < num_cubes; ++i)
     {
         cubes[i] = DirectX::XMMatrixIdentity();
         if(i % 2 == 0) 
         {
-            real32 x_translate = i + 4.0f;
+            real32 x_translate = (i*2) + 4.0f;
             translation = DirectX::XMMatrixTranslation(x_translate, 0.0f, 0.0f);
+            rotation_axis = DirectX::XMVectorSet(x_translate, 0.0f, 0.0f, 0.0f);
         }
         else
         {
-            real32 y_translate = i + 4.0f;
+            real32 y_translate = (i*2) + 4.0f;
             translation = DirectX::XMMatrixTranslation(0.0f, y_translate, 0.0f);
+            rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
         }
+        DirectX::XMMATRIX rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
         cubes[i] = translation*rotation;
     }
-
-
-
 }
 
-internal real32 find_dist_from_cam(DirectX::XMMATRIX cube)
-{
-    DirectX::XMVECTOR cube_pos = DirectX::XMVectorZero();
-    cube_pos = DirectX::XMVector2TransformCoord(cube_pos, cube);
-
-    real32 dist_x = DirectX::XMVectorGetX(cube_pos) - DirectX::XMVectorGetX(cam_position);
-    real32 dist_y = DirectX::XMVectorGetY(cube_pos) - DirectX::XMVectorGetY(cam_position);
-    real32 dist_z = DirectX::XMVectorGetZ(cube_pos) - DirectX::XMVectorGetZ(cam_position);
-
-    real32 cube_dist = dist_x*dist_x + dist_y*dist_y + dist_z*dist_z;
-    return(cube_dist);
-}
-
-void scene_render(uint32 num_cubes, DirectX::XMMATRIX *cubes)
+void scene_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
 {
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
@@ -589,41 +605,37 @@ void scene_render(uint32 num_cubes, DirectX::XMMATRIX *cubes)
     device_context->ClearRenderTargetView(render_target_view, bgColor);
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-#if 0
-    CB_Per_Object cb_per_object = {};
-    cb_per_object.cube1 = DirectX::XMMatrixTranspose(cube_1_world);
-    cb_per_object.cube2 = DirectX::XMMatrixTranspose(cube_2_world);
-    device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
-#endif
-
-    for(uint32 i = 0; i < num_cubes; ++i)
-    {
-        // TODO: Transpose and load each cube into the constant buffer, then call UpdateSubresource
-    }
-
     CB_Per_Frame cb_per_frame = {};
     cb_per_frame.view = DirectX::XMMatrixTranspose(cam_view);
     cb_per_frame.projection = DirectX::XMMatrixTranspose(cam_projection);
     device_context->UpdateSubresource(cb_per_frame_buffer, 0, 0, &cb_per_frame, 0, 0);
     device_context->VSSetConstantBuffers(1, 1, &cb_per_frame_buffer);
 
+    CB_Per_Object cb_per_object = {};
+    DirectX::XMMATRIX *cbpo_index = (DirectX::XMMATRIX *)&cb_per_object.cube1;
+
+    for(uint32 i = 0; i < num_cubes; ++i)
+    {
+            *cbpo_index = DirectX::XMMatrixTranspose(cubes[i]);
+            cbpo_index = cbpo_index + 4;
+    }
+    device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
+
     UINT offset = 0;
     UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
-    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-    device_context->PSSetShaderResources(0, 1, &rock_shader_resource_view);
-    device_context->PSSetSamplers(0, 1, &rock_sampler_state);
-    device_context->DrawIndexed(36, 0, 0);
-
-    offset = (sizeof(cb_per_object.cube2)*4) / 16;
-    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-    device_context->PSSetShaderResources(0, 1, &rock_shader_resource_view);
-    device_context->PSSetSamplers(0, 1, &rock_sampler_state);
-    device_context->DrawIndexed(36, 0, 0);
+    for(uint32 i = 0; i < num_cubes; ++i)
+    {
+        offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
+        device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
+        device_context->PSSetShaderResources(0, 1, &texture_infos[i].shader_resource_view);
+        device_context->PSSetSamplers(0, 1, &texture_infos[i].sampler_state);
+        device_context->DrawIndexed(36, 0, 0);
+    }
 
     swap_chain->Present(0, 0);
 }
 
-int messageloop(uint32 num_cubes, DirectX::XMMATRIX *cubes)
+int messageloop(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
 {
     MSG msg;
     ZeroMemory(&msg, sizeof(MSG));
@@ -646,7 +658,7 @@ int messageloop(uint32 num_cubes, DirectX::XMMATRIX *cubes)
         }
         else{
             scene_update(num_cubes, cubes);
-            scene_render(num_cubes, cubes);
+            scene_render(num_cubes, cubes, texture_infos);
             }
     }
     return msg.wParam;
@@ -661,12 +673,17 @@ int WINAPI WinMain(HINSTANCE hInstance,
     srand((unsigned int)time(0));
     uint32 num_cubes = (rand() % 10) + 1;
 
-    DirectX::XMMATRIX cubes[num_cubes];
+    DirectX::XMMATRIX *cubes;
+    cubes = (DirectX::XMMATRIX *)VirtualAlloc(0, num_cubes*sizeof(DirectX::XMMATRIX), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+
+    // TODO: Fix the state madness
+    Texture_Info texture_infos[10];
+
 
     window_init(hInstance, nShowCmd, WIDTH, HEIGHT, true);
     d3d11_init(hInstance);
-    scene_init();
-    messageloop(num_cubes, cubes);
+    scene_init(num_cubes, texture_infos);
+    messageloop(num_cubes, cubes, texture_infos);
     
     return 0;
 }
