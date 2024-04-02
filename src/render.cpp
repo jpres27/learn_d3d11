@@ -496,6 +496,24 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     filenames[8] = "09.png";
     filenames[9] = "10.png";
 
+    char *shuffled_filenames[10];
+    bool32 visited[10];
+    for(int i = 0; i < 10; ++i)
+    {
+        visited[i] = false;
+    }
+
+    for (int i = 0; i < 10; ++i)
+    {
+        int j = rand() % 10;
+        while(visited[j])
+        {
+            j = rand() % 10;
+        }
+        shuffled_filenames[i] = filenames[j];
+        visited[j] = true;
+    }    
+
     int image_width;
     int image_height;
     int image_channels;
@@ -503,7 +521,7 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     int image_pitch;
     for(int i = 0; i < num_textures; ++i)
     {
-        unsigned char *image_data = stbi_load(filenames[i],
+        unsigned char *image_data = stbi_load(shuffled_filenames[i],
                                             &image_width, 
                                             &image_height, 
                                             &image_channels, image_desired_channels);
