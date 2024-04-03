@@ -40,17 +40,20 @@ struct Vertex
 {
     Vertex(){}
     Vertex(float x, float y, float z,
-        float u, float v)
-        : pos(x,y,z), tex_coord(u, v){}
+        float u, float v,
+        float nx, float ny, float nz)
+        : pos(x,y,z), tex_coord(u, v), normal(nx, ny, nz){}
 
     DirectX::XMFLOAT3 pos;
     DirectX::XMFLOAT2 tex_coord;
+    DirectX::XMFLOAT3 normal;
 };
 
 D3D11_INPUT_ELEMENT_DESC layout[] =
 {
     { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
-    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
+    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 }  
 };
 
 IDXGISwapChain1* swap_chain;
@@ -155,10 +158,21 @@ struct CB_Per_Object
     DirectX::XMMATRIX pad30; // 2560 bytes
 };
 
+struct Light
+{
+    DirectX::XMFLOAT3 dir;
+    real32 pad;
+    DirectX::XMFLOAT4 ambient;
+    DirectX::XMFLOAT4 diffuse;
+};
+
+Light light = {};
+
 struct CB_Per_Frame 
 {
     DirectX::XMMATRIX view;
     DirectX::XMMATRIX projection;
+    Light light;
 };
 
 LRESULT CALLBACK WndProc(HWND window,
@@ -353,44 +367,48 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     device_context->VSSetShader(vertex_shader, 0, 0);
     device_context->PSSetShader(pixel_shader, 0, 0);
 
-        Vertex v[] =
-        {
-            // Front Face
-            Vertex(-1.0f, -1.0f, -1.0f, 0.0f, 1.0f),
-            Vertex(-1.0f,  1.0f, -1.0f, 0.0f, 0.0f),
-            Vertex( 1.0f,  1.0f, -1.0f, 1.0f, 0.0f),
-            Vertex( 1.0f, -1.0f, -1.0f, 1.0f, 1.0f),
-    
-            // Back Face
-            Vertex(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f),
-            Vertex( 1.0f, -1.0f, 1.0f, 0.0f, 1.0f),
-            Vertex( 1.0f,  1.0f, 1.0f, 0.0f, 0.0f),
-            Vertex(-1.0f,  1.0f, 1.0f, 1.0f, 0.0f),
-    
-            // Top Face
-            Vertex(-1.0f, 1.0f, -1.0f, 0.0f, 1.0f),
-            Vertex(-1.0f, 1.0f,  1.0f, 0.0f, 0.0f),
-            Vertex( 1.0f, 1.0f,  1.0f, 1.0f, 0.0f),
-            Vertex( 1.0f, 1.0f, -1.0f, 1.0f, 1.0f),
-    
-            // Bottom Face
-            Vertex(-1.0f, -1.0f, -1.0f, 1.0f, 1.0f),
-            Vertex( 1.0f, -1.0f, -1.0f, 0.0f, 1.0f),
-            Vertex( 1.0f, -1.0f,  1.0f, 0.0f, 0.0f),
-            Vertex(-1.0f, -1.0f,  1.0f, 1.0f, 0.0f),
-    
-            // Left Face
-            Vertex(-1.0f, -1.0f,  1.0f, 0.0f, 1.0f),
-            Vertex(-1.0f,  1.0f,  1.0f, 0.0f, 0.0f),
-            Vertex(-1.0f,  1.0f, -1.0f, 1.0f, 0.0f),
-            Vertex(-1.0f, -1.0f, -1.0f, 1.0f, 1.0f),
-    
-            // Right Face
-            Vertex( 1.0f, -1.0f, -1.0f, 0.0f, 1.0f),
-            Vertex( 1.0f,  1.0f, -1.0f, 0.0f, 0.0f),
-            Vertex( 1.0f,  1.0f,  1.0f, 1.0f, 0.0f),
-            Vertex( 1.0f, -1.0f,  1.0f, 1.0f, 1.0f),
-        };
+    light.dir = DirectX::XMFLOAT3(0.25f, 0.5f, -1.0f);
+    light.ambient = DirectX::XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+    light.diffuse = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+
+    Vertex v[] =
+    {
+        // Front Face
+        Vertex(-1.0f, -1.0f, -1.0f, 0.0f, 1.0f,-1.0f, -1.0f, -1.0f),
+        Vertex(-1.0f,  1.0f, -1.0f, 0.0f, 0.0f,-1.0f,  1.0f, -1.0f),
+        Vertex( 1.0f,  1.0f, -1.0f, 1.0f, 0.0f, 1.0f,  1.0f, -1.0f),
+        Vertex( 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f),
+
+        // Back Face
+        Vertex(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f,-1.0f, -1.0f, 1.0f),
+        Vertex( 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 1.0f),
+        Vertex( 1.0f,  1.0f, 1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 1.0f),
+        Vertex(-1.0f,  1.0f, 1.0f, 1.0f, 0.0f,-1.0f,  1.0f, 1.0f),
+
+        // Top Face
+        Vertex(-1.0f, 1.0f, -1.0f, 0.0f, 1.0f,-1.0f, 1.0f, -1.0f),
+        Vertex(-1.0f, 1.0f,  1.0f, 0.0f, 0.0f,-1.0f, 1.0f,  1.0f),
+        Vertex( 1.0f, 1.0f,  1.0f, 1.0f, 0.0f, 1.0f, 1.0f,  1.0f),
+        Vertex( 1.0f, 1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f),
+
+        // Bottom Face
+        Vertex(-1.0f, -1.0f, -1.0f, 1.0f, 1.0f,-1.0f, -1.0f, -1.0f),
+        Vertex( 1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, -1.0f, -1.0f),
+        Vertex( 1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 1.0f, -1.0f,  1.0f),
+        Vertex(-1.0f, -1.0f,  1.0f, 1.0f, 0.0f,-1.0f, -1.0f,  1.0f),
+
+        // Left Face
+        Vertex(-1.0f, -1.0f,  1.0f, 0.0f, 1.0f,-1.0f, -1.0f,  1.0f),
+        Vertex(-1.0f,  1.0f,  1.0f, 0.0f, 0.0f,-1.0f,  1.0f,  1.0f),
+        Vertex(-1.0f,  1.0f, -1.0f, 1.0f, 0.0f,-1.0f,  1.0f, -1.0f),
+        Vertex(-1.0f, -1.0f, -1.0f, 1.0f, 1.0f,-1.0f, -1.0f, -1.0f),
+
+        // Right Face
+        Vertex( 1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, -1.0f, -1.0f),
+        Vertex( 1.0f,  1.0f, -1.0f, 0.0f, 0.0f, 1.0f,  1.0f, -1.0f),
+        Vertex( 1.0f,  1.0f,  1.0f, 1.0f, 0.0f, 1.0f,  1.0f,  1.0f),
+        Vertex( 1.0f, -1.0f,  1.0f, 1.0f, 1.0f, 1.0f, -1.0f,  1.0f),
+    };
     
         DWORD indices[] = {
             // Front Face
@@ -625,8 +643,10 @@ void scene_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *text
     CB_Per_Frame cb_per_frame = {};
     cb_per_frame.view = DirectX::XMMatrixTranspose(cam_view);
     cb_per_frame.projection = DirectX::XMMatrixTranspose(cam_projection);
+    cb_per_frame.light = light;
     device_context->UpdateSubresource(cb_per_frame_buffer, 0, 0, &cb_per_frame, 0, 0);
     device_context->VSSetConstantBuffers(1, 1, &cb_per_frame_buffer);
+    device_context->PSSetConstantBuffers(1, 1, &cb_per_frame_buffer);
 
     CB_Per_Object cb_per_object = {};
     DirectX::XMMATRIX *cbpo_index = (DirectX::XMMATRIX *)&cb_per_object.cube1;
@@ -634,7 +654,7 @@ void scene_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *text
     for(uint32 i = 0; i < num_cubes; ++i)
     {
             *cbpo_index = DirectX::XMMatrixTranspose(cubes[i]);
-            cbpo_index = cbpo_index + 4;
+            cbpo_index += 4;
     }
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
 
@@ -695,7 +715,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
     // TODO: Fix the state madness
     Texture_Info texture_infos[10];
-
 
     window_init(hInstance, nShowCmd, WIDTH, HEIGHT, true);
     d3d11_init(hInstance);
