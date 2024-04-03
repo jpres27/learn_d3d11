@@ -13,48 +13,12 @@
 #include <DirectXMath.h>
 #include <time.h>
 
+#include "render.h"
 #include "strings.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 // #define STBI_ONLY_PNG
-
-#define internal static
-#define local_persist static
-#define global_variable static
-
-#define assert(expression) if(expression == false) {*(int *)0 = 0;}
-#define AssertHR(hr) assert(SUCCEEDED(hr))
-#define array_count(array) (sizeof(array) / sizeof((array)[0]))
-
-typedef int32_t int32;
-typedef int64_t int64;
-typedef uint32_t uint32;
-typedef uint64_t uint64;
-typedef int32_t bool32;
-typedef float real32;
-typedef double real64;
-typedef real32 RGBA[4];
-
-struct Vertex
-{
-    Vertex(){}
-    Vertex(float x, float y, float z,
-        float u, float v,
-        float nx, float ny, float nz)
-        : pos(x,y,z), tex_coord(u, v), normal(nx, ny, nz){}
-
-    DirectX::XMFLOAT3 pos;
-    DirectX::XMFLOAT2 tex_coord;
-    DirectX::XMFLOAT3 normal;
-};
-
-D3D11_INPUT_ELEMENT_DESC layout[] =
-{
-    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
-    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 }  
-};
 
 IDXGISwapChain1* swap_chain;
 ID3D11Device1* device;
@@ -73,11 +37,11 @@ ID3D11InputLayout* vertex_layout;
 ID3D11Buffer* cb_per_object_buffer;
 ID3D11Buffer* cb_per_frame_buffer;
 
-struct Texture_Info
+D3D11_INPUT_ELEMENT_DESC layout[] =
 {
-    ID3D11Texture2D *texture;
-    ID3D11ShaderResourceView *shader_resource_view;
-    ID3D11SamplerState *sampler_state;
+    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
+    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 }  
 };
 
 real32 red = 0.0f;
@@ -86,9 +50,6 @@ real32 blue = 0.0f;
 int colormodr = 1;
 int colormodg = 1;
 int colormodb = 1;
-
-LPCTSTR WndClassName = "firstwindow";
-HWND window = NULL;
 
 const int WIDTH  = 1400;
 const int HEIGHT = 1050;
@@ -102,101 +63,7 @@ DirectX::XMVECTOR cam_up;
 
 real32 rotation_state = 0.01f;
 
-// Constant buffers consist of shader constants which are 16 bytes (4*32-buit components)
-// and when using offsets to bind various parts of a CB it must be a multiple of 16
-// constants in the range [0, 4096]
-struct CB_Per_Object
-{
-    DirectX::XMMATRIX cube1; // 64 bytes
-    DirectX::XMMATRIX pad1;
-    DirectX::XMMATRIX pad2;
-    DirectX::XMMATRIX pad3; //256 bytes (16 shader constants)
-
-    DirectX::XMMATRIX cube2;
-    DirectX::XMMATRIX pad4;
-    DirectX::XMMATRIX pad5;
-    DirectX::XMMATRIX pad6; // 512 bytes
-
-    DirectX::XMMATRIX cube3;
-    DirectX::XMMATRIX pad7;
-    DirectX::XMMATRIX pad8;
-    DirectX::XMMATRIX pad9;
-
-    DirectX::XMMATRIX cube4;
-    DirectX::XMMATRIX pad10;
-    DirectX::XMMATRIX pad11;
-    DirectX::XMMATRIX pad12; // 1024 bytes
-
-    DirectX::XMMATRIX cube5;
-    DirectX::XMMATRIX pad13;
-    DirectX::XMMATRIX pad14;
-    DirectX::XMMATRIX pad15;
-
-    DirectX::XMMATRIX cube6;
-    DirectX::XMMATRIX pad16;
-    DirectX::XMMATRIX pad17;
-    DirectX::XMMATRIX pad18;
-
-    DirectX::XMMATRIX cube7;
-    DirectX::XMMATRIX pad19;
-    DirectX::XMMATRIX pad20;
-    DirectX::XMMATRIX pad21;
-
-    DirectX::XMMATRIX cube8;
-    DirectX::XMMATRIX pad22;
-    DirectX::XMMATRIX pad23;
-    DirectX::XMMATRIX pad24;
-
-    DirectX::XMMATRIX cube9;
-    DirectX::XMMATRIX pad25;
-    DirectX::XMMATRIX pad26;
-    DirectX::XMMATRIX pad27;
-
-    DirectX::XMMATRIX cube10;
-    DirectX::XMMATRIX pad28;
-    DirectX::XMMATRIX pad29;
-    DirectX::XMMATRIX pad30; // 2560 bytes
-};
-
-struct Light
-{
-    DirectX::XMFLOAT3 dir;
-    real32 pad;
-    DirectX::XMFLOAT4 ambient;
-    DirectX::XMFLOAT4 diffuse;
-};
-
 Light light = {};
-
-struct CB_Per_Frame 
-{
-    DirectX::XMMATRIX view;
-    DirectX::XMMATRIX projection;
-    Light light;
-};
-
-LRESULT CALLBACK WndProc(HWND window,
-    UINT msg,
-    WPARAM wParam,
-    LPARAM lParam)
-{
-    switch( msg )
-    {
-    case WM_KEYDOWN:
-        if( wParam == VK_ESCAPE ){
-            DestroyWindow(window);
-        }
-        return 0;
-
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
-    }
-    return DefWindowProc(window,
-        msg,
-        wParam,
-        lParam);
-}
 
 internal real32 find_dist_from_cam(DirectX::XMMATRIX cube)
 {
@@ -211,56 +78,7 @@ internal real32 find_dist_from_cam(DirectX::XMMATRIX cube)
     return(cube_dist);
 }
 
-void window_init(HINSTANCE hInstance,
-    int ShowWnd,
-    int width, int height,
-    bool32 windowed)
-{
-    WNDCLASSEX wc;
-
-    wc.cbSize = sizeof(WNDCLASSEX);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = WndProc;
-    wc.cbClsExtra = NULL;
-    wc.cbWndExtra = NULL;
-    wc.hInstance = hInstance;
-    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 2);
-    wc.lpszMenuName = NULL;
-    wc.lpszClassName = WndClassName;
-    wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
-
-    if (!RegisterClassEx(&wc))
-    {
-        MessageBox(NULL, "Error registering class",    
-            "Error", MB_OK | MB_ICONERROR);
-    }
-
-    window = CreateWindowEx(
-        NULL,
-        WndClassName,
-        "Window Title",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        width, height,
-        NULL,
-        NULL,
-        hInstance,
-        NULL
-        );
-
-    if (!window)
-    {
-        MessageBox(NULL, "Error creating window",
-            "Error", MB_OK | MB_ICONERROR);
-    }
-
-    ShowWindow(window, ShowWnd);
-    UpdateWindow(window);
-}
-
-void d3d11_init(HINSTANCE hInstance)
+void d3d11_init(HINSTANCE hInstance, HWND window)
 {
     D3D_FEATURE_LEVEL levels[] = 
     {
@@ -585,7 +403,7 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     }
 }
 
-void scene_update(uint32 num_cubes, DirectX::XMMATRIX *cubes)
+void update_and_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
 {
     assert(num_cubes > 0 && num_cubes < 11);
 
@@ -630,10 +448,7 @@ void scene_update(uint32 num_cubes, DirectX::XMMATRIX *cubes)
         DirectX::XMMATRIX rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
         cubes[i] = translation*rotation;
     }
-}
 
-void scene_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
-{
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
     real32 bgColor[4] = {(0.0f, 0.0f, 0.0f, 0.0f)};
@@ -672,6 +487,76 @@ void scene_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *text
     swap_chain->Present(0, 0);
 }
 
+LRESULT CALLBACK win32_main_window_callback(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch( msg )
+    {
+    case WM_KEYDOWN:
+        if( wParam == VK_ESCAPE ){
+            DestroyWindow(window);
+        }
+        return 0;
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProc(window,
+        msg,
+        wParam,
+        lParam);
+}
+
+HWND window_init(HINSTANCE hInstance,
+    int ShowWnd,
+    int width, int height,
+    bool32 windowed)
+{
+    WNDCLASSEX wc;
+
+    wc.cbSize = sizeof(WNDCLASSEX);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = win32_main_window_callback;
+    wc.cbClsExtra = NULL;
+    wc.cbWndExtra = NULL;
+    wc.hInstance = hInstance;
+    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 2);
+    wc.lpszMenuName = NULL;
+    wc.lpszClassName = "Render_Window_Class";
+    wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
+
+    if (!RegisterClassEx(&wc))
+    {
+        MessageBox(NULL, "Error registering class",    
+            "Error", MB_OK | MB_ICONERROR);
+    }
+
+    HWND window = CreateWindowEx(
+        NULL,
+        wc.lpszClassName,
+        "Window Title",
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        width, height,
+        NULL,
+        NULL,
+        hInstance,
+        NULL
+        );
+
+    if (!window)
+    {
+        MessageBox(NULL, "Error creating window",
+            "Error", MB_OK | MB_ICONERROR);
+    }
+
+    ShowWindow(window, ShowWnd);
+    UpdateWindow(window);
+    return(window);
+}
+
 int messageloop(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
 {
     MSG msg;
@@ -694,18 +579,19 @@ int messageloop(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *textur
             DispatchMessage(&msg);
         }
         else{
-            scene_update(num_cubes, cubes);
-            scene_render(num_cubes, cubes, texture_infos);
+            update_and_render(num_cubes, cubes, texture_infos);
             }
     }
     return msg.wParam;
 }
 
-int WINAPI WinMain(HINSTANCE hInstance,
-    HINSTANCE hPrevInstance, 
-    LPSTR lpCmdLine,
-    int nShowCmd)
+int WINAPI WinMain(HINSTANCE instance,
+    HINSTANCE prev_instance, 
+    LPSTR cmd_line,
+    int show_cmd)
 {
+    HWND window = window_init(instance, show_cmd, WIDTH, HEIGHT, true);
+    d3d11_init(instance, window);
 
     srand((unsigned int)time(0));
     uint32 num_cubes = (rand() % 10) + 1;
@@ -716,10 +602,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
     // TODO: Fix the state madness
     Texture_Info texture_infos[10];
 
-    window_init(hInstance, nShowCmd, WIDTH, HEIGHT, true);
-    d3d11_init(hInstance);
     scene_init(num_cubes, texture_infos);
     messageloop(num_cubes, cubes, texture_infos);
     
-    return 0;
+    return(0);
 }
