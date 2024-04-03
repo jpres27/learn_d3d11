@@ -313,7 +313,7 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     cb_per_frame_bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     hr = device->CreateBuffer(&cb_per_frame_bd, 0, &cb_per_frame_buffer);
 
-    cam_position = DirectX::XMVectorSet(10.0f, 3.0f, -35.0f, 0.0f);
+    cam_position = DirectX::XMVectorSet(10.0f, 10.0f, -35.0f, 0.0f);
     cam_target = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
     cam_up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     cam_view = DirectX::XMMatrixLookAtLH(cam_position, cam_target, cam_up);
@@ -403,7 +403,7 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     }
 }
 
-void update_and_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
+void update_and_render(int32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
 {
     assert(num_cubes > 0 && num_cubes < 11);
 
@@ -428,25 +428,31 @@ void update_and_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info 
 #endif
 
     DirectX::XMMATRIX translation;
+    DirectX::XMMATRIX rotation;
+    DirectX::XMMATRIX scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
     DirectX::XMVECTOR rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
 
-    for(uint32 i = 0; i < num_cubes; ++i)
+    for(int32 i = 0; i < num_cubes; ++i)
     {
         cubes[i] = DirectX::XMMatrixIdentity();
         if(i % 2 == 0) 
         {
             real32 x_translate = (i*2) + 4.0f;
-            translation = DirectX::XMMatrixTranslation(x_translate, 0.0f, 0.0f);
-            rotation_axis = DirectX::XMVectorSet(x_translate, 0.0f, 0.0f, 0.0f);
+            real32 y_translate = (i*3) + 4.0f;
+            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
+            rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
+            cubes[i] = translation*rotation*scaling;
         }
         else
         {
+            real32 x_translate = (i*3) + 4.0f;
             real32 y_translate = (i*2) + 4.0f;
-            translation = DirectX::XMMatrixTranslation(0.0f, y_translate, 0.0f);
+            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
             rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
+            cubes[i] = translation*rotation*scaling;
         }
-        DirectX::XMMATRIX rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
-        cubes[i] = translation*rotation;
     }
 
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
@@ -466,7 +472,7 @@ void update_and_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info 
     CB_Per_Object cb_per_object = {};
     DirectX::XMMATRIX *cbpo_index = (DirectX::XMMATRIX *)&cb_per_object.cube1;
 
-    for(uint32 i = 0; i < num_cubes; ++i)
+    for(int32 i = 0; i < num_cubes; ++i)
     {
             *cbpo_index = DirectX::XMMatrixTranspose(cubes[i]);
             cbpo_index += 4;
@@ -475,7 +481,7 @@ void update_and_render(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info 
 
     UINT offset = 0;
     UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
-    for(uint32 i = 0; i < num_cubes; ++i)
+    for(int32 i = 0; i < num_cubes; ++i)
     {
         offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
         device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
@@ -557,7 +563,7 @@ HWND window_init(HINSTANCE hInstance,
     return(window);
 }
 
-int messageloop(uint32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
+int messageloop(int32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
 {
     MSG msg;
     ZeroMemory(&msg, sizeof(MSG));
@@ -594,7 +600,7 @@ int WINAPI WinMain(HINSTANCE instance,
     d3d11_init(instance, window);
 
     srand((unsigned int)time(0));
-    uint32 num_cubes = (rand() % 10) + 1;
+    int32 num_cubes = (rand() % 10) + 1;
 
     DirectX::XMMATRIX *cubes;
     cubes = (DirectX::XMMATRIX *)VirtualAlloc(0, num_cubes*sizeof(DirectX::XMMATRIX), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
