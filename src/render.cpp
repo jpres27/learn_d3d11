@@ -28,8 +28,9 @@ ID3D11Device1* device;
 ID3D11DeviceContext1* device_context;
 ID3D11RenderTargetView* render_target_view;
 
-ID3D11Buffer* sq_index_buffer;
-ID3D11Buffer* sq_vert_buffer;
+ID3D11Buffer* cube_index_buffer;
+ID3D11Buffer* cube_vert_buffer;
+
 ID3D11DepthStencilView* depth_stencil_view;
 ID3D11Texture2D* depth_stencil_buffer;
 
@@ -181,25 +182,21 @@ void scene_init(uint32 num_objects, Texture_Info *texture_infos, Sphere *sphere)
     device_context->VSSetShader(vertex_shader, 0, 0);
     device_context->PSSetShader(pixel_shader, 0, 0);
 
-    light.dir = DirectX::XMFLOAT3(0.25f, 0.5f, -1.0f);
-    light.ambient = DirectX::XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
-    light.diffuse = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-
     #include "cube.h"
 
-    D3D11_BUFFER_DESC index_buffer_desc = {};
-    index_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    index_buffer_desc.ByteWidth = sizeof(DWORD)*12*3;
-    index_buffer_desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    index_buffer_desc.CPUAccessFlags = 0;
-    index_buffer_desc.MiscFlags = 0;
+    D3D11_BUFFER_DESC cube_index_bd = {};
+    cube_index_bd.Usage = D3D11_USAGE_DEFAULT;
+    cube_index_bd.ByteWidth = sizeof(DWORD)*12*3;
+    cube_index_bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    cube_index_bd.CPUAccessFlags = 0;
+    cube_index_bd.MiscFlags = 0;
 
-    D3D11_SUBRESOURCE_DATA index_init_data ={};
-    index_init_data.pSysMem = indices;
+    D3D11_SUBRESOURCE_DATA cube_index_init_data ={};
+    cube_index_init_data.pSysMem = indices;
 
-    hr = device->CreateBuffer(&index_buffer_desc, &index_init_data, &sq_index_buffer);
+    hr = device->CreateBuffer(&cube_index_bd, &cube_index_init_data, &cube_index_buffer);
     AssertHR(hr);
-    device_context->IASetIndexBuffer(sq_index_buffer, DXGI_FORMAT_R32_UINT, 0);
+    device_context->IASetIndexBuffer(cube_index_buffer, DXGI_FORMAT_R32_UINT, 0);
 
     D3D11_BUFFER_DESC vert_buffer_desc = {};
     vert_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
@@ -211,12 +208,12 @@ void scene_init(uint32 num_objects, Texture_Info *texture_infos, Sphere *sphere)
     D3D11_SUBRESOURCE_DATA vert_buffer_data = {};
     vert_buffer_data.pSysMem = v;
 
-    hr = device->CreateBuffer(&vert_buffer_desc, &vert_buffer_data, &sq_vert_buffer);
+    hr = device->CreateBuffer(&vert_buffer_desc, &vert_buffer_data, &cube_vert_buffer);
     AssertHR(hr);
 
     UINT stride = sizeof(Vertex);
     UINT offset = 0;
-    device_context->IASetVertexBuffers(0, 1, &sq_vert_buffer, &stride, &offset);
+    device_context->IASetVertexBuffers(0, 1, &cube_vert_buffer, &stride, &offset);
 
     hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
     AssertHR(hr);
@@ -339,6 +336,10 @@ void scene_init(uint32 num_objects, Texture_Info *texture_infos, Sphere *sphere)
 void update_and_render(int32 num_objects, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
 {
     assert(num_objects > 0 && num_objects < 11);
+
+    light.dir = DirectX::XMFLOAT3(0.25f, 0.5f, -1.0f);
+    light.ambient = DirectX::XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+    light.diffuse = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
     rotation_state += 0.0005f;
     if (rotation_state > 6.28f)
