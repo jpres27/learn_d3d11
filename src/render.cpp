@@ -15,10 +15,13 @@
 
 #include "render.h"
 #include "strings.h"
+#include "geometry.cpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 // #define STBI_ONLY_PNG
+
+global_variable bool32 running;
 
 IDXGISwapChain1* swap_chain;
 ID3D11Device1* device;
@@ -36,13 +39,6 @@ ID3D11InputLayout* vertex_layout;
 
 ID3D11Buffer* cb_per_object_buffer;
 ID3D11Buffer* cb_per_frame_buffer;
-
-D3D11_INPUT_ELEMENT_DESC layout[] =
-{
-    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },  
-    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 }  
-};
 
 real32 red = 0.0f;
 real32 green = 0.0f;
@@ -172,7 +168,7 @@ void d3d11_init(HINSTANCE hInstance, HWND window)
     device->CreateDepthStencilView(depth_stencil_buffer, 0, &depth_stencil_view);
 }
 
-void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
+void scene_init(uint32 num_objects, Texture_Info *texture_infos, Sphere *sphere)
 {
     HRESULT hr;
 
@@ -189,70 +185,7 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     light.ambient = DirectX::XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
     light.diffuse = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
-    Vertex v[] =
-    {
-        // Front Face
-        Vertex(-1.0f, -1.0f, -1.0f, 0.0f, 1.0f,-1.0f, -1.0f, -1.0f),
-        Vertex(-1.0f,  1.0f, -1.0f, 0.0f, 0.0f,-1.0f,  1.0f, -1.0f),
-        Vertex( 1.0f,  1.0f, -1.0f, 1.0f, 0.0f, 1.0f,  1.0f, -1.0f),
-        Vertex( 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f),
-
-        // Back Face
-        Vertex(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f,-1.0f, -1.0f, 1.0f),
-        Vertex( 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 1.0f),
-        Vertex( 1.0f,  1.0f, 1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 1.0f),
-        Vertex(-1.0f,  1.0f, 1.0f, 1.0f, 0.0f,-1.0f,  1.0f, 1.0f),
-
-        // Top Face
-        Vertex(-1.0f, 1.0f, -1.0f, 0.0f, 1.0f,-1.0f, 1.0f, -1.0f),
-        Vertex(-1.0f, 1.0f,  1.0f, 0.0f, 0.0f,-1.0f, 1.0f,  1.0f),
-        Vertex( 1.0f, 1.0f,  1.0f, 1.0f, 0.0f, 1.0f, 1.0f,  1.0f),
-        Vertex( 1.0f, 1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f),
-
-        // Bottom Face
-        Vertex(-1.0f, -1.0f, -1.0f, 1.0f, 1.0f,-1.0f, -1.0f, -1.0f),
-        Vertex( 1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, -1.0f, -1.0f),
-        Vertex( 1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 1.0f, -1.0f,  1.0f),
-        Vertex(-1.0f, -1.0f,  1.0f, 1.0f, 0.0f,-1.0f, -1.0f,  1.0f),
-
-        // Left Face
-        Vertex(-1.0f, -1.0f,  1.0f, 0.0f, 1.0f,-1.0f, -1.0f,  1.0f),
-        Vertex(-1.0f,  1.0f,  1.0f, 0.0f, 0.0f,-1.0f,  1.0f,  1.0f),
-        Vertex(-1.0f,  1.0f, -1.0f, 1.0f, 0.0f,-1.0f,  1.0f, -1.0f),
-        Vertex(-1.0f, -1.0f, -1.0f, 1.0f, 1.0f,-1.0f, -1.0f, -1.0f),
-
-        // Right Face
-        Vertex( 1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, -1.0f, -1.0f),
-        Vertex( 1.0f,  1.0f, -1.0f, 0.0f, 0.0f, 1.0f,  1.0f, -1.0f),
-        Vertex( 1.0f,  1.0f,  1.0f, 1.0f, 0.0f, 1.0f,  1.0f,  1.0f),
-        Vertex( 1.0f, -1.0f,  1.0f, 1.0f, 1.0f, 1.0f, -1.0f,  1.0f),
-    };
-    
-        DWORD indices[] = {
-            // Front Face
-            0,  1,  2,
-            0,  2,  3,
-    
-            // Back Face
-            4,  5,  6,
-            4,  6,  7,
-    
-            // Top Face
-            8,  9, 10,
-            8, 10, 11,
-    
-            // Bottom Face
-            12, 13, 14,
-            12, 14, 15,
-    
-            // Left Face
-            16, 17, 18,
-            16, 18, 19,
-    
-            // Right Face
-            20, 21, 22,
-            20, 22, 23
-        };
+    #include "cube.h"
 
     D3D11_BUFFER_DESC index_buffer_desc = {};
     index_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
@@ -403,9 +336,9 @@ void scene_init(uint32 num_cubes, Texture_Info *texture_infos)
     }
 }
 
-void update_and_render(int32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
+void update_and_render(int32 num_objects, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
 {
-    assert(num_cubes > 0 && num_cubes < 11);
+    assert(num_objects > 0 && num_objects < 11);
 
     rotation_state += 0.0005f;
     if (rotation_state > 6.28f)
@@ -413,26 +346,12 @@ void update_and_render(int32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *
         rotation_state = 0.0f;
     }
 
-#if 0
-    cube_1_world = DirectX::XMMatrixIdentity();
-    DirectX::XMVECTOR rotation_axis_1 = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
-    rotation = DirectX::XMMatrixRotationAxis(rotation_axis_1, rotation_state);
-    translation = DirectX::XMMatrixTranslation(0.0f, 4.0f, 0.0f);
-    cube_1_world = translation*rotation;
-
-    cube_2_world = DirectX::XMMatrixIdentity();
-    DirectX::XMVECTOR rotation_axis_2 = DirectX::XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
-    rotation = DirectX::XMMatrixRotationAxis(rotation_axis_2, -rotation_state);
-    scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
-    cube_2_world = rotation*scaling;
-#endif
-
     DirectX::XMMATRIX translation;
     DirectX::XMMATRIX rotation;
     DirectX::XMMATRIX scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
     DirectX::XMVECTOR rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
 
-    for(int32 i = 0; i < num_cubes; ++i)
+    for(int32 i = 0; i < num_objects; ++i)
     {
         cubes[i] = DirectX::XMMatrixIdentity();
         if(i % 2 == 0) 
@@ -472,7 +391,7 @@ void update_and_render(int32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *
     CB_Per_Object cb_per_object = {};
     DirectX::XMMATRIX *cbpo_index = (DirectX::XMMATRIX *)&cb_per_object.cube1;
 
-    for(int32 i = 0; i < num_cubes; ++i)
+    for(int32 i = 0; i < num_objects; ++i)
     {
             *cbpo_index = DirectX::XMMatrixTranspose(cubes[i]);
             cbpo_index += 4;
@@ -481,7 +400,7 @@ void update_and_render(int32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *
 
     UINT offset = 0;
     UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
-    for(int32 i = 0; i < num_cubes; ++i)
+    for(int32 i = 0; i < num_objects; ++i)
     {
         offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
         device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
@@ -563,32 +482,25 @@ HWND window_init(HINSTANCE hInstance,
     return(window);
 }
 
-int messageloop(int32 num_cubes, DirectX::XMMATRIX *cubes, Texture_Info *texture_infos)
+void messageloop(HWND window)
 {
     MSG msg;
-    ZeroMemory(&msg, sizeof(MSG));
-    while(true)
+    while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
     {
-        BOOL PeekMessageL( 
-            LPMSG lpMsg,
-            HWND window,
-            UINT wMsgFilterMin,
-            UINT wMsgFilterMax,
-            UINT wRemoveMsg
-            );
-
-        if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+        switch(msg.message)
         {
-            if (msg.message == WM_QUIT)
-                break;
+        case WM_QUIT:
+        {
+            running = false;
+            DestroyWindow(window);
+        } break;
+        default:
+        {
             TranslateMessage(&msg);    
-            DispatchMessage(&msg);
+            DispatchMessage(&msg);  
+        } break;
         }
-        else{
-            update_and_render(num_cubes, cubes, texture_infos);
-            }
     }
-    return msg.wParam;
 }
 
 int WINAPI WinMain(HINSTANCE instance,
@@ -600,16 +512,25 @@ int WINAPI WinMain(HINSTANCE instance,
     d3d11_init(instance, window);
 
     srand((unsigned int)time(0));
-    int32 num_cubes = (rand() % 10) + 1;
+    int32 num_objects = (rand() % 10) + 1;
+    int32 num_spheres = (rand() % num_objects) + 1;
+    int32 num_cubes = num_objects - num_spheres;
 
     DirectX::XMMATRIX *cubes;
-    cubes = (DirectX::XMMATRIX *)VirtualAlloc(0, num_cubes*sizeof(DirectX::XMMATRIX), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    cubes = (DirectX::XMMATRIX *)VirtualAlloc(0, num_objects*sizeof(DirectX::XMMATRIX), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
-    // TODO: Fix the state madness
+    Sphere sphere = {};
+    build_smooth_sphere(&sphere);
     Texture_Info texture_infos[10];
 
-    scene_init(num_cubes, texture_infos);
-    messageloop(num_cubes, cubes, texture_infos);
+    scene_init(num_objects, texture_infos, &sphere);
+
+    running = true;
+    while(running)
+    {
+        messageloop(window);
+        update_and_render(num_objects, cubes, texture_infos);
+    }
     
     return(0);
 }
