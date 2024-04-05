@@ -38,13 +38,13 @@ internal void build_smooth_sphere(Sphere *sphere)
         }
     }
     counter = 0;
-    uint32 k1, k2;
-    for(real32 i = 0; i < stack_count; ++i)
+    int32 k1, k2;
+    for(int32 i = 0; i < stack_count; ++i)
     {
-        k1 = (uint32)(i * (sector_count + 1)); // beginning of current stack
-        k2 = (uint32)(k1 + sector_count + 1); // next stack
+        k1 = (int32)(i * (sector_count + 1)); // beginning of current stack
+        k2 = (int32)(k1 + sector_count + 1); // next stack
 
-        for(int j = 0; j < sector_count; ++j, ++k1, ++k2)
+        for(int32 j = 0; j < sector_count; ++j, ++k1, ++k2)
         {
             if (i != 0) // two triangles per sector excluding first and last stacks
             {
@@ -64,9 +64,14 @@ internal void build_smooth_sphere(Sphere *sphere)
                 ++counter;
                 sphere->indices[counter] = k2;
                 ++counter;
-                sphere->indices[counter] = k1 + 1;
+                sphere->indices[counter] = k2 + 1;
                 ++counter;
             }
         }
     }
+}
+
+void build_icosphere(Sphere *sphere)
+{
+
 }
