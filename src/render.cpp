@@ -14,7 +14,7 @@
 #include <time.h>
 
 #include "render.h"
-#include "strings.h"
+#include "utils.cpp"
 #include "geometry.cpp"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -60,6 +60,10 @@ DirectX::XMMATRIX cam_projection;
 DirectX::XMVECTOR cam_position;
 DirectX::XMVECTOR cam_target;
 DirectX::XMVECTOR cam_up;
+
+ID3D11BlendState* transparency;
+ID3D11RasterizerState *ccw_cull;
+ID3D11RasterizerState *cw_cull;
 
 real32 rotation_state = 0.01f;
 
@@ -207,11 +211,33 @@ void scene_init()
     cb_per_frame_bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     hr = device->CreateBuffer(&cb_per_frame_bd, 0, &cb_per_frame_buffer);
 
-    cam_position = DirectX::XMVectorSet(40.0f, 10.0f, -35.0f, 0.0f);
+    cam_position = DirectX::XMVectorSet(0.0f, 30.0f, -20.0f, 0.0f);
     cam_target = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
     cam_up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     cam_view = DirectX::XMMatrixLookAtLH(cam_position, cam_target, cam_up);
     cam_projection = DirectX::XMMatrixPerspectiveFovLH(0.4f*3.14f, (real32)WIDTH/(real32)HEIGHT, 1.0f, 1000.0f);
+
+    D3D11_BLEND_DESC blend_desc = {};
+    D3D11_RENDER_TARGET_BLEND_DESC rt_blend_desc = {};
+    rt_blend_desc.BlendEnable = true;
+    rt_blend_desc.SrcBlend = D3D11_BLEND_SRC_COLOR;
+    rt_blend_desc.DestBlend = D3D11_BLEND_BLEND_FACTOR;
+    rt_blend_desc.BlendOp = D3D11_BLEND_OP_ADD;
+    rt_blend_desc.SrcBlendAlpha = D3D11_BLEND_ONE;
+    rt_blend_desc.DestBlendAlpha = D3D11_BLEND_ZERO;
+    rt_blend_desc.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    rt_blend_desc.RenderTargetWriteMask = D3D10_COLOR_WRITE_ENABLE_ALL;
+    blend_desc.AlphaToCoverageEnable = false;
+    blend_desc.RenderTarget[0] = rt_blend_desc;
+    device->CreateBlendState(&blend_desc, &transparency);
+
+    D3D11_RASTERIZER_DESC cmdesc = {};
+    cmdesc.FillMode = D3D11_FILL_SOLID;
+    cmdesc.CullMode = D3D11_CULL_BACK;
+    cmdesc.FrontCounterClockwise = true;
+    hr = device->CreateRasterizerState(&cmdesc, &ccw_cull);
+    cmdesc.FrontCounterClockwise = false;
+    hr = device->CreateRasterizerState(&cmdesc, &cw_cull);
 }
 
 void load_cube_mesh()
@@ -390,12 +416,13 @@ void load_textures(Texture_Info *texture_infos)
     }
 }
 
-void update_and_render(int32 num_objects, char shuffled_objects[], DirectX::XMMATRIX *cubes, Texture_Info *texture_infos, Sphere *sphere)
+void update_and_render(int32 num_objects, bool32 shuffled_objects[], DirectX::XMMATRIX *cubes, Texture_Info *texture_infos, Sphere *sphere)
 {
     assert(num_objects > 0 && num_objects < 11);
 
+
     light.dir = DirectX::XMFLOAT3(0.25f, 0.5f, -1.0f);
-    light.ambient = DirectX::XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+    light.ambient = DirectX::XMFLOAT4(0.7f, 0.7f, 0.7f, 1.0f);
     light.diffuse = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
     rotation_state += 0.0005f;
@@ -406,7 +433,7 @@ void update_and_render(int32 num_objects, char shuffled_objects[], DirectX::XMMA
 
     DirectX::XMMATRIX translation;
     DirectX::XMMATRIX rotation;
-    DirectX::XMMATRIX scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
+    DirectX::XMMATRIX scaling;
     DirectX::XMVECTOR rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
 
     for(int32 i = 0; i < num_objects; ++i)
@@ -414,21 +441,22 @@ void update_and_render(int32 num_objects, char shuffled_objects[], DirectX::XMMA
         cubes[i] = DirectX::XMMatrixIdentity();
         if(i % 2 == 0) 
         {
-            real32 x_translate = -(i*2) + 4.0f;
-            real32 y_translate = (i*3) + 4.0f;
-            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
-            rotation_axis = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+            real32 x_translate = 0.0f;
+            real32 y_translate = (i*2) + 4.0f;
+            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 4.0f);
+            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
             rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
-            cubes[i] = translation*rotation*scaling;
+            cubes[i] = translation*rotation;
         }
         else
         {
-            real32 x_translate = (i*3) + 4.0f;
-            real32 y_translate = -(i*2) + 4.0f;
+            real32 x_translate = 0.0f;
+            real32 y_translate = (i*2) + 4.0f;
             translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
-            rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
-            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
-            cubes[i] = translation*rotation*scaling;
+            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
+            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
+            scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
+            cubes[i] = rotation*scaling*translation;
         }
     }
 
@@ -437,6 +465,18 @@ void update_and_render(int32 num_objects, char shuffled_objects[], DirectX::XMMA
     real32 bgColor[4] = {(0.0f, 0.0f, 0.0f, 0.0f)};
     device_context->ClearRenderTargetView(render_target_view, bgColor);
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+    real32 blend_factor[] = {0.75f, 0.75f, 0.75f, 1.0f};
+    device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
+    device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
+
+    real32 distances[10];
+    for(int i = 0; i < num_objects; ++i)
+    {
+        distances[i] = find_dist_from_cam(cubes[i]);
+    }
+
+    sort_object_dist(distances, cubes, shuffled_objects, num_objects);
 
     CB_Per_Frame cb_per_frame = {};
     cb_per_frame.view = DirectX::XMMatrixTranspose(cam_view);
@@ -470,15 +510,21 @@ void update_and_render(int32 num_objects, char shuffled_objects[], DirectX::XMMA
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &texture_infos[i].shader_resource_view);
             device_context->PSSetSamplers(0, 1, &texture_infos[i].sampler_state);
+            device_context->RSSetState(ccw_cull);
+            device_context->DrawIndexed(36, 0, 0);
+            device_context->RSSetState(cw_cull);
             device_context->DrawIndexed(36, 0, 0);
         }
-        else if(shuffled_objects[i] == 2)
+        else if(shuffled_objects[i] == 0)
         {
             load_sphere_mesh(sphere);
             offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &texture_infos[i].shader_resource_view);
             device_context->PSSetSamplers(0, 1, &texture_infos[i].sampler_state);
+            device_context->RSSetState(ccw_cull);
+            device_context->DrawIndexed(360, 0, 0);
+            device_context->RSSetState(cw_cull);
             device_context->DrawIndexed(360, 0, 0);
         }
     }
@@ -588,6 +634,10 @@ int WINAPI WinMain(HINSTANCE instance,
 
     srand((unsigned int)time(0));
     int32 num_objects = (rand() % 10) + 1;
+    if(num_objects < 5)
+    {
+        num_objects = 5;
+    }
     int32 num_spheres = (rand() % num_objects) + 1;
     int32 num_cubes = num_objects - num_spheres;
 
@@ -598,16 +648,26 @@ int WINAPI WinMain(HINSTANCE instance,
     build_smooth_sphere(&sphere);
     Texture_Info texture_infos[10];
 
-    char objects[10];
+    // TODO: Start dealing with these objects as objects/structs with field information so that
+    // this mess of multiple arrays getting out of sync can be cleaned up
+
+    bool32 objects[10];
     for(int i = 0; i < num_cubes; ++i)
     {
-        objects[i] = 1;
+        objects[i] = true;
     }
     for(int i = num_cubes; i < num_objects; ++i)
     {
-        objects[i] = 2;
+        objects[i] = false;
     }
-    char shuffled_objects[10];
+    if(num_objects < 10)
+    {
+        for(int i = num_objects; i < 10; ++i)
+        {
+            objects[i] = true;
+        }
+    }
+    bool32 shuffled_objects[10];
     bool32 visited[10];
     for(int i = 0; i < 10; ++i)
     {
