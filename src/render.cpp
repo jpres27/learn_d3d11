@@ -669,9 +669,6 @@ int WINAPI WinMain(HINSTANCE instance,
     int32 num_spheres = (rand() % num_objects) + 1;
     int32 num_cubes = num_objects - num_spheres;
 
-    // DirectX::XMMATRIX *cubes;
-    // cubes = (DirectX::XMMATRIX *)VirtualAlloc(0, num_objects*sizeof(DirectX::XMMATRIX), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-
     Sphere sphere = {};
     build_smooth_sphere(&sphere);
 
