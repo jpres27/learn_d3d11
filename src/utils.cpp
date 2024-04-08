@@ -24,28 +24,14 @@ int string_length(char *string)
     return(count);
 }
 
-void swap_real32(real32 *x, real32 *y)
+void swap_shape(Shape *x, Shape *y)
 {
-    real32 temp = *x;
+    Shape temp = *x;
     *x = *y;
     *y = temp;
 }
 
-void swap_bool32(bool32 *x, bool32 *y)
-{
-    bool32 temp = *x;
-    *x = *y;
-    *y = temp;
-}
-
-void swap_matrix(DirectX::XMMATRIX *x, DirectX::XMMATRIX *y)
-{
-    DirectX::XMMATRIX temp = *x;
-    *x = *y;
-    *y = temp;
-}
-
-void sort_object_dist(real32 distances[], DirectX::XMMATRIX objects[], bool32 shuffled[], int size)
+void sort_object_dist(Shape *shapes, int size)
 {
     int max;
 
@@ -54,13 +40,11 @@ void sort_object_dist(real32 distances[], DirectX::XMMATRIX objects[], bool32 sh
         max = i;
         for(int j = i + 1; j < size; ++j)
         {
-            if(distances[j] > distances[max])
+            if(shapes[j].dist_from_cam > shapes[max].dist_from_cam)
             {
                 max = j;
             }
-            swap_real32(&distances[max], &distances[i]);
-            swap_bool32(&shuffled[max], &shuffled[i]);
-            swap_matrix(&objects[max], &objects[i]);
+            swap_shape(&shapes[max], &shapes[i]);
         }
     }
 }

@@ -17,6 +17,12 @@ typedef float real32;
 typedef double real64;
 typedef real32 RGBA[4];
 
+enum Shape_Type
+{
+    cube_mesh,
+    sphere_mesh
+};
+
 struct Vertex
 {
     Vertex(){}
@@ -42,6 +48,16 @@ struct Texture_Info
     ID3D11Texture2D *texture;
     ID3D11ShaderResourceView *shader_resource_view;
     ID3D11SamplerState *sampler_state;
+};
+
+struct Shape
+{
+    Shape_Type shape_type;
+    DirectX::XMMATRIX world;
+    real32 dist_from_cam;
+    Texture_Info texture_info;
+    real32 x_coord;
+    real32 y_coord;
 };
 
 // Constant buffers consist of shader constants which are 16 bytes (4*32-buit components)

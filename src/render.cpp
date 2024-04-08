@@ -66,6 +66,7 @@ ID3D11RasterizerState *ccw_cull;
 ID3D11RasterizerState *cw_cull;
 
 real32 rotation_state = 0.01f;
+real32 translation_state = -6.27f;
 
 Light light = {};
 
@@ -328,7 +329,7 @@ void load_sphere_mesh(Sphere *sphere)
     device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 
-void load_textures(Texture_Info *texture_infos)
+void load_textures(Shape *shapes)
 {
     HRESULT hr;
 
@@ -391,9 +392,9 @@ void load_textures(Texture_Info *texture_infos)
         subresource_data.pSysMem = image_data;
         subresource_data.SysMemPitch = image_pitch;
 
-        hr = device->CreateTexture2D(&texture_desc, &subresource_data, &texture_infos[i].texture);
+        hr = device->CreateTexture2D(&texture_desc, &subresource_data, &shapes[i].texture_info.texture);
         AssertHR(hr);
-        hr = device->CreateShaderResourceView(texture_infos[i].texture, 0, &texture_infos[i].shader_resource_view);
+        hr = device->CreateShaderResourceView(shapes[i].texture_info.texture, 0, &shapes[i].texture_info.shader_resource_view);
         AssertHR(hr);
 
         D3D11_SAMPLER_DESC sampler_desc = {};
@@ -411,12 +412,12 @@ void load_textures(Texture_Info *texture_infos)
         sampler_desc.MinLOD = -FLT_MAX;
         sampler_desc.MaxLOD = FLT_MAX;
         
-        hr = device->CreateSamplerState(&sampler_desc, &texture_infos[i].sampler_state);
+        hr = device->CreateSamplerState(&sampler_desc, &shapes[i].texture_info.sampler_state);
         AssertHR(hr);
     }
 }
 
-void update_and_render(int32 num_objects, bool32 shuffled_objects[], DirectX::XMMATRIX *cubes, Texture_Info *texture_infos, Sphere *sphere)
+void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
 {
     assert(num_objects > 0 && num_objects < 11);
 
@@ -431,6 +432,15 @@ void update_and_render(int32 num_objects, bool32 shuffled_objects[], DirectX::XM
         rotation_state = 0.0f;
     }
 
+    if(translation_state < -4.5f)
+    {
+        translation_state += 0.001f;
+    }
+    else if(translation_state > 4.5f)
+    {
+        translation_state -= 0.001f;
+    }
+
     DirectX::XMMATRIX translation;
     DirectX::XMMATRIX rotation;
     DirectX::XMMATRIX scaling;
@@ -438,45 +448,63 @@ void update_and_render(int32 num_objects, bool32 shuffled_objects[], DirectX::XM
 
     for(int32 i = 0; i < num_objects; ++i)
     {
-        cubes[i] = DirectX::XMMatrixIdentity();
-        if(i % 2 == 0) 
+        shapes[i].world = DirectX::XMMatrixIdentity();
+        real32 x_translate = 0;
+        real32 y_translate = 0;
+        if(shapes[i].shape_type == cube_mesh) 
         {
-            real32 x_translate = 0.0f;
-            real32 y_translate = (i*2) + 4.0f;
+            if(i % 2 == 0)
+            {
+                x_translate = -(translation_state + shapes[i].x_coord);
+                y_translate = translation_state + shapes[i].y_coord;
+            }
+            else
+            {
+                x_translate = translation_state + shapes[i].x_coord;
+                y_translate = translation_state + shapes[i].y_coord;
+            }
             translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 4.0f);
             rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
             rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
-            cubes[i] = translation*rotation;
+            shapes[i].world = translation*rotation;
         }
-        else
+        else if (shapes[i].shape_type == sphere_mesh)
         {
-            real32 x_translate = 0.0f;
-            real32 y_translate = (i*2) + 4.0f;
+            if(i % 2 == 0)
+            {
+                x_translate = (translation_state + shapes[i].x_coord);
+                y_translate = -(translation_state + shapes[i].y_coord);
+            }
+            else
+            {
+                x_translate = -(translation_state + shapes[i].x_coord);
+                y_translate = translation_state + shapes[i].y_coord;
+            }
             translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
             rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
             rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
             scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
-            cubes[i] = rotation*scaling*translation;
+            shapes[i].world = rotation*scaling*translation;
         }
     }
 
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
-    real32 bgColor[4] = {(0.0f, 0.0f, 0.0f, 0.0f)};
-    device_context->ClearRenderTargetView(render_target_view, bgColor);
+    FLOAT color[] = { 0.392f, 0.584f, 0.929f, 1.f };
+    real32 bgColor[4] = {(1.0f, 1.0f, 0.0f, 0.0f)};
+    device_context->ClearRenderTargetView(render_target_view, color);
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
     real32 blend_factor[] = {0.75f, 0.75f, 0.75f, 1.0f};
     device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
     device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
 
-    real32 distances[10];
     for(int i = 0; i < num_objects; ++i)
     {
-        distances[i] = find_dist_from_cam(cubes[i]);
+        shapes[i].dist_from_cam = find_dist_from_cam(shapes[i].world);
     }
 
-    sort_object_dist(distances, cubes, shuffled_objects, num_objects);
+    sort_object_dist(shapes, num_objects);
 
     CB_Per_Frame cb_per_frame = {};
     cb_per_frame.view = DirectX::XMMatrixTranspose(cam_view);
@@ -491,7 +519,7 @@ void update_and_render(int32 num_objects, bool32 shuffled_objects[], DirectX::XM
 
     for(int32 i = 0; i < num_objects; ++i)
     {
-            *cbpo_index = DirectX::XMMatrixTranspose(cubes[i]);
+            *cbpo_index = DirectX::XMMatrixTranspose(shapes[i].world);
             cbpo_index += 4;
     }
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
@@ -503,25 +531,25 @@ void update_and_render(int32 num_objects, bool32 shuffled_objects[], DirectX::XM
 
     for(int32 i = 0; i < num_objects; ++i)
     {
-        if(shuffled_objects[i] == 1)
+        if(shapes[i].shape_type == cube_mesh)
         {
             load_cube_mesh();
             offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-            device_context->PSSetShaderResources(0, 1, &texture_infos[i].shader_resource_view);
-            device_context->PSSetSamplers(0, 1, &texture_infos[i].sampler_state);
+            device_context->PSSetShaderResources(0, 1, &shapes[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &shapes[i].texture_info.sampler_state);
             device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(36, 0, 0);
             device_context->RSSetState(cw_cull);
             device_context->DrawIndexed(36, 0, 0);
         }
-        else if(shuffled_objects[i] == 0)
+        else if(shapes[i].shape_type == sphere_mesh)
         {
             load_sphere_mesh(sphere);
             offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-            device_context->PSSetShaderResources(0, 1, &texture_infos[i].shader_resource_view);
-            device_context->PSSetSamplers(0, 1, &texture_infos[i].sampler_state);
+            device_context->PSSetShaderResources(0, 1, &shapes[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &shapes[i].texture_info.sampler_state);
             device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(360, 0, 0);
             device_context->RSSetState(cw_cull);
@@ -641,32 +669,46 @@ int WINAPI WinMain(HINSTANCE instance,
     int32 num_spheres = (rand() % num_objects) + 1;
     int32 num_cubes = num_objects - num_spheres;
 
-    DirectX::XMMATRIX *cubes;
-    cubes = (DirectX::XMMATRIX *)VirtualAlloc(0, num_objects*sizeof(DirectX::XMMATRIX), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    // DirectX::XMMATRIX *cubes;
+    // cubes = (DirectX::XMMATRIX *)VirtualAlloc(0, num_objects*sizeof(DirectX::XMMATRIX), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
     Sphere sphere = {};
     build_smooth_sphere(&sphere);
-    Texture_Info texture_infos[10];
 
-    // TODO: Start dealing with these objects as objects/structs with field information so that
-    // this mess of multiple arrays getting out of sync can be cleaned up
+    Shape *shapes;
+    shapes = (Shape *)VirtualAlloc(0, num_objects*sizeof(Shape), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
-    bool32 objects[10];
     for(int i = 0; i < num_cubes; ++i)
     {
-        objects[i] = true;
+        shapes[i].shape_type = cube_mesh;
+        if(i % 2 == 0)
+        {
+            shapes[i].x_coord = i * -(real32)(rand() % 8);
+            shapes[i].y_coord = i * (real32)(rand() % 8);
+        }
+        else 
+        {
+            shapes[i].x_coord = i * -(real32)(rand() % 8);
+            shapes[i].y_coord = i * -(real32)(rand() % 8);
+        }
     }
     for(int i = num_cubes; i < num_objects; ++i)
     {
-        objects[i] = false;
-    }
-    if(num_objects < 10)
-    {
-        for(int i = num_objects; i < 10; ++i)
+        shapes[i].shape_type = sphere_mesh;
+        if(i % 2 == 0)
         {
-            objects[i] = true;
+            shapes[i].x_coord = i * (real32)(rand() % 8);
+            shapes[i].y_coord = i * -(real32)(rand() % 8);
         }
+        else 
+        {
+            shapes[i].x_coord = i * (real32)(rand() % 8);
+            shapes[i].y_coord = i * (real32)(rand() % 8);
+        }
+
     }
+
+#if 0 
     bool32 shuffled_objects[10];
     bool32 visited[10];
     for(int i = 0; i < 10; ++i)
@@ -684,15 +726,16 @@ int WINAPI WinMain(HINSTANCE instance,
         shuffled_objects[i] = objects[j];
         visited[j] = true;
     }  
+#endif
 
     scene_init();
-    load_textures(texture_infos);
+    load_textures(shapes);
 
     running = true;
     while(running)
     {
         messageloop(window);
-        update_and_render(num_objects, shuffled_objects, cubes, texture_infos, &sphere);
+        update_and_render(shapes, num_objects, &sphere);
     }
     
     return(0);
