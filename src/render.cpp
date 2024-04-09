@@ -225,7 +225,7 @@ void scene_init()
     cb_per_frame_bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     hr = device->CreateBuffer(&cb_per_frame_bd, 0, &cb_per_frame_buffer);
 
-    cam_position = DirectX::XMVectorSet(0.0f, 30.0f, -20.0f, 0.0f);
+    cam_position = DirectX::XMVectorSet(0.0f, 30.0f, -10.0f, 0.0f);
     cam_target = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
     cam_up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     cam_view = DirectX::XMMatrixLookAtLH(cam_position, cam_target, cam_up);
@@ -445,15 +445,6 @@ void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
         rotation_state = 0.0f;
     }
 
-    if(translation_state < -4.5f)
-    {
-        translation_state += 0.001f;
-    }
-    else if(translation_state > 4.5f)
-    {
-        translation_state -= 0.001f;
-    }
-
     DirectX::XMMATRIX translation;
     DirectX::XMMATRIX rotation;
     DirectX::XMMATRIX scaling;
@@ -466,16 +457,9 @@ void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
         real32 y_translate = 0;
         if(shapes[i].shape_type == cube_mesh) 
         {
-            if(i % 2 == 0)
-            {
-                x_translate = -(translation_state + shapes[i].x_coord);
-                y_translate = translation_state + shapes[i].y_coord;
-            }
-            else
-            {
-                x_translate = translation_state + shapes[i].x_coord;
-                y_translate = translation_state + shapes[i].y_coord;
-            }
+
+            x_translate = shapes[i].x_coord;
+            y_translate = shapes[i].y_coord;
             translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 4.0f);
             rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
             rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
@@ -483,16 +467,9 @@ void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
         }
         else if (shapes[i].shape_type == sphere_mesh)
         {
-            if(i % 2 == 0)
-            {
-                x_translate = (translation_state + shapes[i].x_coord);
-                y_translate = -(translation_state + shapes[i].y_coord);
-            }
-            else
-            {
-                x_translate = -(translation_state + shapes[i].x_coord);
-                y_translate = translation_state + shapes[i].y_coord;
-            }
+
+            x_translate = shapes[i].x_coord;
+            y_translate = shapes[i].y_coord;
             translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
             rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
             rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
@@ -699,13 +676,13 @@ int WINAPI WinMain(HINSTANCE instance,
         shapes[i].shape_type = cube_mesh;
         if(i % 2 == 0)
         {
-            shapes[i].x_coord = i * -(real32)(rand() % 8);
-            shapes[i].y_coord = i * (real32)(rand() % 8);
+            shapes[i].x_coord = (i+1) * -(real32)(rand() % 4);
+            shapes[i].y_coord = (i+1) * (real32)(rand() % 4);
         }
         else 
         {
-            shapes[i].x_coord = i * -(real32)(rand() % 8);
-            shapes[i].y_coord = i * -(real32)(rand() % 8);
+            shapes[i].x_coord = (i+1) * -(real32)(rand() % 4);
+            shapes[i].y_coord = (i+1) * -(real32)(rand() % 4);
         }
     }
     for(int i = num_cubes; i < num_objects; ++i)
@@ -713,13 +690,13 @@ int WINAPI WinMain(HINSTANCE instance,
         shapes[i].shape_type = sphere_mesh;
         if(i % 2 == 0)
         {
-            shapes[i].x_coord = i * (real32)(rand() % 8);
-            shapes[i].y_coord = i * -(real32)(rand() % 8);
+            shapes[i].x_coord = (i+1) * (real32)(rand() % 4);
+            shapes[i].y_coord = (i+1) * -(real32)(rand() % 4);
         }
         else 
         {
-            shapes[i].x_coord = i * (real32)(rand() % 8);
-            shapes[i].y_coord = i * (real32)(rand() % 8);
+            shapes[i].x_coord = (i+1) * (real32)(rand() % 4);
+            shapes[i].y_coord = (i+1) * (real32)(rand() % 4);
         }
 
     }
