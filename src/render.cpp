@@ -28,6 +28,8 @@ ID3D11Device1* device;
 ID3D11DeviceContext1* device_context;
 ID3D11RenderTargetView* render_target_view;
 
+ID3DUserDefinedAnnotation *event_grouper;
+
 ID3D11Buffer* cube_index_buffer;
 ID3D11Buffer* cube_vert_buffer;
 
@@ -87,6 +89,14 @@ internal real32 find_dist_from_cam(DirectX::XMMATRIX cube)
     return(cube_dist);
 }
 
+internal void set_debug_name(ID3D11DeviceChild *child, char *name)
+{
+    if(child && name)
+    {
+        child->SetPrivateData(WKPDID_D3DDebugObjectName, string_length(name), name);
+    }
+}
+
 void d3d11_init(HINSTANCE hInstance, HWND window)
 {
     D3D_FEATURE_LEVEL levels[] = 
@@ -136,6 +146,9 @@ void d3d11_init(HINSTANCE hInstance, HWND window)
     info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, TRUE);
     info->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, TRUE);
     info->Release();
+
+    hr = device_context->QueryInterface(__uuidof(ID3DUserDefinedAnnotation), (void**)&event_grouper);
+    AssertHR(hr);
 #endif
 
     // TODO: Get DXGI debug layer to work by figuring out how to actually call getdebuginterface
@@ -490,10 +503,16 @@ void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
 
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
+#if DEBUG
+    event_grouper->BeginEvent((LPCWSTR)"Clear screen");
+#endif
     FLOAT color[] = { 0.392f, 0.584f, 0.929f, 1.f };
     real32 bgColor[4] = {(1.0f, 1.0f, 0.0f, 0.0f)};
     device_context->ClearRenderTargetView(render_target_view, color);
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
+#if DEBUG
+    event_grouper->EndEvent();
+#endif
 
     real32 blend_factor[] = {0.75f, 0.75f, 0.75f, 1.0f};
     device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
