@@ -461,7 +461,7 @@ void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
             x_translate = shapes[i].x_coord;
             y_translate = shapes[i].y_coord;
             translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 4.0f);
-            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
+            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 4.0f);
             rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
             shapes[i].world = translation*rotation;
         }
@@ -471,7 +471,7 @@ void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
             x_translate = shapes[i].x_coord;
             y_translate = shapes[i].y_coord;
             translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
-            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
+            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 4.0f);
             rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
             scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
             shapes[i].world = rotation*scaling*translation;
