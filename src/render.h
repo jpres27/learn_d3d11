@@ -60,6 +60,15 @@ struct Shape
     real32 y_coord;
 };
 
+struct Object_Lists
+{
+    Shape *opaque_objects;
+    int32 opaque_size;
+    Shape *transparent_objects;
+    int32 transparent_size;
+    int32 num_objects;
+};
+
 // Constant buffers consist of shader constants which are 16 bytes (4*32-buit components)
 // and when using offsets to bind various parts of a CB it must be a multiple of 16
 // constants in the range [0, 4096]
@@ -114,6 +123,31 @@ struct CB_Per_Object
     DirectX::XMMATRIX pad28;
     DirectX::XMMATRIX pad29;
     DirectX::XMMATRIX pad30; // 2560 bytes
+
+    DirectX::XMMATRIX cube11;
+    DirectX::XMMATRIX pad31;
+    DirectX::XMMATRIX pad32;
+    DirectX::XMMATRIX pad33;
+
+    DirectX::XMMATRIX cube12;
+    DirectX::XMMATRIX pad34;
+    DirectX::XMMATRIX pad35;
+    DirectX::XMMATRIX pad36;
+
+    DirectX::XMMATRIX cube13;
+    DirectX::XMMATRIX pad37;
+    DirectX::XMMATRIX pad38;
+    DirectX::XMMATRIX pad39;
+
+    DirectX::XMMATRIX cube14;
+    DirectX::XMMATRIX pad40;
+    DirectX::XMMATRIX pad41;
+    DirectX::XMMATRIX pad42;
+
+    DirectX::XMMATRIX cube15;
+    DirectX::XMMATRIX pad43;
+    DirectX::XMMATRIX pad44;
+    DirectX::XMMATRIX pad45; // 3840 bytes
 };
 
 struct Light

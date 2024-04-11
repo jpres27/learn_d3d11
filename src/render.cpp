@@ -97,6 +97,56 @@ internal void set_debug_name(ID3D11DeviceChild *child, char *name)
     }
 }
 
+void init_shape(Shape *shapes, int num_cube, int num_sphere)
+{
+    int32 num_objects = num_cube + num_sphere;
+
+    for(int i = 0; i < num_cube; ++i)
+    {
+        shapes[i].shape_type = cube_mesh;
+    }
+
+    for(int i = num_cube; i < num_objects; ++i)
+    {
+        shapes[i].shape_type = sphere_mesh;
+    }
+}
+
+void init_coords(Shape *shapes, int32 size, real32 modifier)
+{
+    for(int i = 0; i < size; ++i)
+    {
+        if(i % 2 == 0)
+        {
+            shapes[i].x_coord = (i + modifier);
+            shapes[i].y_coord = (i + modifier);
+        }
+        else 
+        {
+            shapes[i].x_coord = -(i + modifier);
+            shapes[i].y_coord = -(i + modifier);
+        }
+    }
+}
+
+void attach_textures(Shape *shapes, int32 size, Texture_Info *texture_info)
+{
+    int k = 0;
+    for(int i = 0; i < size; ++i)
+    {
+        if(k >= 10)
+        {
+            k = 0;
+        }
+
+        shapes[i].texture_info.sampler_state = texture_info[k].sampler_state;
+        shapes[i].texture_info.shader_resource_view = texture_info[k].shader_resource_view;
+        shapes[i].texture_info.texture = texture_info[k].texture;
+
+        ++k;
+    }
+}
+
 void d3d11_init(HINSTANCE hInstance, HWND window)
 {
     D3D_FEATURE_LEVEL levels[] = 
@@ -342,7 +392,7 @@ void load_sphere_mesh(Sphere *sphere)
     device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 
-void load_textures(Shape *shapes)
+void load_textures(Texture_Info *texture_info)
 {
     HRESULT hr;
 
@@ -381,6 +431,9 @@ void load_textures(Shape *shapes)
     int image_channels;
     int image_desired_channels = 4;
     int image_pitch;
+
+    // TODO: Completely overhaul the way we load and save textures so that any texture can be applied to any object easily
+
     for(int i = 0; i < 10; ++i)
     {
         unsigned char *image_data = stbi_load(shuffled_filenames[i],
@@ -405,9 +458,9 @@ void load_textures(Shape *shapes)
         subresource_data.pSysMem = image_data;
         subresource_data.SysMemPitch = image_pitch;
 
-        hr = device->CreateTexture2D(&texture_desc, &subresource_data, &shapes[i].texture_info.texture);
+        hr = device->CreateTexture2D(&texture_desc, &subresource_data, &texture_info[i].texture);
         AssertHR(hr);
-        hr = device->CreateShaderResourceView(shapes[i].texture_info.texture, 0, &shapes[i].texture_info.shader_resource_view);
+        hr = device->CreateShaderResourceView(texture_info[i].texture, 0, &texture_info[i].shader_resource_view);
         AssertHR(hr);
 
         D3D11_SAMPLER_DESC sampler_desc = {};
@@ -425,14 +478,15 @@ void load_textures(Shape *shapes)
         sampler_desc.MinLOD = -FLT_MAX;
         sampler_desc.MaxLOD = FLT_MAX;
         
-        hr = device->CreateSamplerState(&sampler_desc, &shapes[i].texture_info.sampler_state);
+        hr = device->CreateSamplerState(&sampler_desc, &texture_info[i].sampler_state);
         AssertHR(hr);
     }
 }
 
-void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
+void update_and_render(Object_Lists *object_lists, Sphere *sphere)
 {
-    assert(num_objects > 0 && num_objects < 11);
+    int32 num_objects = object_lists->opaque_size + object_lists->transparent_size;
+    assert(num_objects > 0 && num_objects < 21);
 
 
     light.dir = DirectX::XMFLOAT3(0.25f, 0.5f, -1.0f);
@@ -450,58 +504,77 @@ void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
     DirectX::XMMATRIX scaling;
     DirectX::XMVECTOR rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
 
-    for(int32 i = 0; i < num_objects; ++i)
+    for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
-        shapes[i].world = DirectX::XMMatrixIdentity();
+        object_lists->opaque_objects[i].world = DirectX::XMMatrixIdentity();
         real32 x_translate = 0;
         real32 y_translate = 0;
-        if(shapes[i].shape_type == cube_mesh) 
+        if(object_lists->opaque_objects[i].shape_type == cube_mesh) 
         {
 
-            x_translate = shapes[i].x_coord;
-            y_translate = shapes[i].y_coord;
+            x_translate = object_lists->opaque_objects[i].x_coord;
+            y_translate = object_lists->opaque_objects[i].y_coord;
             translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 4.0f);
-            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 4.0f);
+            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
             rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
-            shapes[i].world = translation*rotation;
+            object_lists->opaque_objects[i].world = translation*rotation;
         }
-        else if (shapes[i].shape_type == sphere_mesh)
+        else if (object_lists->opaque_objects[i].shape_type == sphere_mesh)
         {
 
-            x_translate = shapes[i].x_coord;
-            y_translate = shapes[i].y_coord;
+            x_translate = object_lists->opaque_objects[i].x_coord;
+            y_translate = object_lists->opaque_objects[i].y_coord;
             translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
-            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 4.0f);
+            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
             rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
             scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
-            shapes[i].world = rotation*scaling*translation;
+            object_lists->opaque_objects[i].world = rotation*scaling*translation;
+        }
+    }
+
+    for(int32 i = 0; i < object_lists->transparent_size; ++i)
+    {
+        object_lists->transparent_objects[i].world = DirectX::XMMatrixIdentity();
+        real32 x_translate = 0;
+        real32 y_translate = 0;
+        if(object_lists->transparent_objects[i].shape_type == cube_mesh) 
+        {
+
+            x_translate = object_lists->transparent_objects[i].x_coord;
+            y_translate = object_lists->transparent_objects[i].y_coord;
+            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 4.0f);
+            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
+            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
+            object_lists->transparent_objects[i].world = translation*rotation;
+        }
+        else if (object_lists->transparent_objects[i].shape_type == sphere_mesh)
+        {
+
+            x_translate = object_lists->transparent_objects[i].x_coord;
+            y_translate = object_lists->transparent_objects[i].y_coord;
+            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
+            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
+            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
+            scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
+            object_lists->transparent_objects[i].world = rotation*scaling*translation;
         }
     }
 
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
 #if DEBUG
-    event_grouper->BeginEvent((LPCWSTR)"Clear screen");
+    event_grouper->BeginEvent(L"Clear screen");
 #endif
     FLOAT color[] = { 0.392f, 0.584f, 0.929f, 1.f };
-    real32 bgColor[4] = {(1.0f, 1.0f, 0.0f, 0.0f)};
     device_context->ClearRenderTargetView(render_target_view, color);
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 #if DEBUG
     event_grouper->EndEvent();
 #endif
 
-    real32 blend_factor[] = {0.75f, 0.75f, 0.75f, 1.0f};
-    device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
-    device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
-
-    for(int i = 0; i < num_objects; ++i)
-    {
-        shapes[i].dist_from_cam = find_dist_from_cam(shapes[i].world);
-    }
-
-    sort_object_dist(shapes, num_objects);
-
+#if DEBUG
+    event_grouper->BeginEvent(L"Setup cb_per_frame");
+#endif
     CB_Per_Frame cb_per_frame = {};
     cb_per_frame.view = DirectX::XMMatrixTranspose(cam_view);
     cb_per_frame.projection = DirectX::XMMatrixTranspose(cam_projection);
@@ -509,49 +582,109 @@ void update_and_render(Shape *shapes, int32 num_objects, Sphere *sphere)
     device_context->UpdateSubresource(cb_per_frame_buffer, 0, 0, &cb_per_frame, 0, 0);
     device_context->VSSetConstantBuffers(1, 1, &cb_per_frame_buffer);
     device_context->PSSetConstantBuffers(1, 1, &cb_per_frame_buffer);
+#if DEBUG
+    event_grouper->EndEvent();
+#endif
+
+    for(int i = 0; i < object_lists->opaque_size; ++i)
+    {
+        object_lists->opaque_objects[i].dist_from_cam = find_dist_from_cam(object_lists->opaque_objects[i].world);
+    }
+
+    sort_opaque_dist(object_lists->opaque_objects, object_lists->opaque_size);
 
     CB_Per_Object cb_per_object = {};
     DirectX::XMMATRIX *cbpo_index = (DirectX::XMMATRIX *)&cb_per_object.cube1;
 
-    for(int32 i = 0; i < num_objects; ++i)
+    for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
-            *cbpo_index = DirectX::XMMatrixTranspose(shapes[i].world);
+            *cbpo_index = DirectX::XMMatrixTranspose(object_lists->opaque_objects[i].world);
+            cbpo_index += 4;
+    }
+
+    for(int i = 0; i < object_lists->transparent_size; ++i)
+    {
+        object_lists->transparent_objects[i].dist_from_cam = find_dist_from_cam(object_lists->transparent_objects[i].world);
+    }
+
+    sort_transparent_dist(object_lists->transparent_objects, object_lists->transparent_size);
+
+    for(int32 i = 0; i < object_lists->transparent_size; ++i)
+    {
+            *cbpo_index = DirectX::XMMatrixTranspose(object_lists->transparent_objects[i].world);
             cbpo_index += 4;
     }
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
 
-    load_cube_mesh();
     UINT offset = 0;
     UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
-  
 
-    for(int32 i = 0; i < num_objects; ++i)
+#if DEBUG
+    event_grouper->BeginEvent(L"Render opaque objects");
+#endif
+    device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
+
+    for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
-        if(shapes[i].shape_type == cube_mesh)
+        if(object_lists->opaque_objects[i].shape_type == cube_mesh)
         {
             load_cube_mesh();
             offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-            device_context->PSSetShaderResources(0, 1, &shapes[i].texture_info.shader_resource_view);
-            device_context->PSSetSamplers(0, 1, &shapes[i].texture_info.sampler_state);
+            device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+            device_context->DrawIndexed(36, 0, 0);
+        }
+        else if(object_lists->opaque_objects[i].shape_type == sphere_mesh)
+        {
+            load_sphere_mesh(sphere);
+            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
+            device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+            device_context->DrawIndexed(360, 0, 0);
+        }
+    }
+#if DEBUG
+    event_grouper->EndEvent();
+#endif
+
+#if DEBUG
+    event_grouper->BeginEvent(L"Render transparent objects");
+#endif
+    real32 blend_factor[] = {0.75f, 0.75f, 0.75f, 1.0f};
+    device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
+
+    for(int32 i = 0; i < object_lists->transparent_size; ++i)
+    {
+        if(object_lists->transparent_objects[i].shape_type == cube_mesh)
+        {
+            load_cube_mesh();
+            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
+            device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
             device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(36, 0, 0);
             device_context->RSSetState(cw_cull);
             device_context->DrawIndexed(36, 0, 0);
         }
-        else if(shapes[i].shape_type == sphere_mesh)
+        else if(object_lists->transparent_objects[i].shape_type == sphere_mesh)
         {
             load_sphere_mesh(sphere);
             offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-            device_context->PSSetShaderResources(0, 1, &shapes[i].texture_info.shader_resource_view);
-            device_context->PSSetSamplers(0, 1, &shapes[i].texture_info.sampler_state);
+            device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
             device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(360, 0, 0);
             device_context->RSSetState(cw_cull);
             device_context->DrawIndexed(360, 0, 0);
         }
     }
+#if DEBUG
+    event_grouper->EndEvent();
+#endif
 
 
     swap_chain->Present(0, 0);
@@ -662,73 +795,46 @@ int WINAPI WinMain(HINSTANCE instance,
     {
         num_objects = 5;
     }
-    int32 num_spheres = (rand() % num_objects) + 1;
-    int32 num_cubes = num_objects - num_spheres;
+    int32 num_transparent = 3;
+    int32 num_opaque = num_objects - num_transparent;
+
+    int32 num_opaque_sphere = num_opaque / 2;
+    int32 num_opaque_cube = num_opaque - num_opaque_sphere;
+
+    int32 num_transparent_sphere = num_transparent / 2;
+    int32 num_transparent_cube = num_transparent - num_transparent_sphere;
 
     Sphere sphere = {};
     build_smooth_sphere(&sphere);
 
-    Shape *shapes;
-    shapes = (Shape *)VirtualAlloc(0, num_objects*sizeof(Shape), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    Shape *opaques;
+    opaques = (Shape *)VirtualAlloc(0, num_opaque*sizeof(Shape), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    Shape *transparents;
+    transparents = (Shape *)VirtualAlloc(0, num_transparent*sizeof(Shape), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    Object_Lists object_lists = {};
+    object_lists.opaque_objects = opaques;
+    object_lists.opaque_size = num_opaque;
+    object_lists.transparent_objects = transparents;
+    object_lists.transparent_size = num_transparent;
+    object_lists.num_objects = num_objects;
 
-    for(int i = 0; i < num_cubes; ++i)
-    {
-        shapes[i].shape_type = cube_mesh;
-        if(i % 2 == 0)
-        {
-            shapes[i].x_coord = (i+1) * -(real32)(rand() % 4);
-            shapes[i].y_coord = (i+1) * (real32)(rand() % 4);
-        }
-        else 
-        {
-            shapes[i].x_coord = (i+1) * -(real32)(rand() % 4);
-            shapes[i].y_coord = (i+1) * -(real32)(rand() % 4);
-        }
-    }
-    for(int i = num_cubes; i < num_objects; ++i)
-    {
-        shapes[i].shape_type = sphere_mesh;
-        if(i % 2 == 0)
-        {
-            shapes[i].x_coord = (i+1) * (real32)(rand() % 4);
-            shapes[i].y_coord = (i+1) * -(real32)(rand() % 4);
-        }
-        else 
-        {
-            shapes[i].x_coord = (i+1) * (real32)(rand() % 4);
-            shapes[i].y_coord = (i+1) * (real32)(rand() % 4);
-        }
-
-    }
-
-#if 0 
-    bool32 shuffled_objects[10];
-    bool32 visited[10];
-    for(int i = 0; i < 10; ++i)
-    {
-        visited[i] = false;
-    }
-
-    for (int i = 0; i < 10; ++i)
-    {
-        int j = rand() % 10;
-        while(visited[j])
-        {
-            j = rand() % 10;
-        }
-        shuffled_objects[i] = objects[j];
-        visited[j] = true;
-    }  
-#endif
+    init_shape(object_lists.opaque_objects, num_opaque_cube, num_opaque_sphere);
+    init_shape(object_lists.transparent_objects, num_transparent_cube, num_transparent_sphere);
+    init_coords(object_lists.opaque_objects, num_opaque, 1);
+    init_coords(object_lists.transparent_objects, num_transparent, 4);
 
     scene_init();
-    load_textures(shapes);
+
+    Texture_Info texture_info[10];
+    load_textures(texture_info);
+    attach_textures(object_lists.opaque_objects, object_lists.opaque_size, texture_info);
+    attach_textures(object_lists.transparent_objects, object_lists.transparent_size, texture_info);
 
     running = true;
     while(running)
     {
         messageloop(window);
-        update_and_render(shapes, num_objects, &sphere);
+        update_and_render(&object_lists, &sphere);
     }
     
     return(0);

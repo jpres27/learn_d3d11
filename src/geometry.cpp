@@ -70,8 +70,3 @@ internal void build_smooth_sphere(Sphere *sphere)
         }
     }
 }
-
-void build_icosphere(Sphere *sphere)
-{
-
-}
