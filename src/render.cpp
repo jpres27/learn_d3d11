@@ -1,6 +1,7 @@
 #pragma comment (lib, "gdi32.lib")
 #pragma comment (lib, "user32.lib")
 #pragma comment (lib, "d3d11.lib")
+#pragma comment (lib, "dinput8.lib")
 #pragma comment (lib, "dxguid")
 #pragma comment (lib, "dxgi")
 
@@ -11,6 +12,9 @@
 #include <dxgi1_2.h>
 #include <dxgidebug.h>
 #include <DirectXMath.h>
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
+
 #include <time.h>
 
 #include "render.h"
@@ -21,7 +25,16 @@
 #include "stb_image.h"
 // #define STBI_ONLY_PNG
 
+using namespace DirectX;
+
 global_variable bool32 running;
+
+real64 counts_per_second = 0.0;
+int64 counter_start = 0;
+int frame_count = 0;
+int fps = 0;
+int64 frame_time_old = 0;
+real64 frame_time;
 
 IDXGISwapChain1* swap_chain;
 ID3D11Device1* device;
@@ -36,6 +49,9 @@ ID3D11Buffer* cube_vert_buffer;
 ID3D11Buffer* sphere_index_buffer;
 ID3D11Buffer* sphere_vert_buffer;
 
+ID3D11Buffer* ground_index_buffer;
+ID3D11Buffer* ground_vert_buffer;
+
 ID3D11DepthStencilView* depth_stencil_view;
 ID3D11Texture2D* depth_stencil_buffer;
 
@@ -46,44 +62,91 @@ ID3D11InputLayout* vertex_layout;
 ID3D11Buffer* cb_per_object_buffer;
 ID3D11Buffer* cb_per_frame_buffer;
 
-real32 red = 0.0f;
-real32 green = 0.0f;
-real32 blue = 0.0f;
-int colormodr = 1;
-int colormodg = 1;
-int colormodb = 1;
-
 const int WIDTH  = 1400;
 const int HEIGHT = 1050;
 
-DirectX::XMMATRIX wvp;
-DirectX::XMMATRIX cam_view;
-DirectX::XMMATRIX cam_projection;
-DirectX::XMVECTOR cam_position;
-DirectX::XMVECTOR cam_target;
-DirectX::XMVECTOR cam_up;
+XMMATRIX wvp;
+XMMATRIX cam_view;
+XMMATRIX cam_projection;
+XMVECTOR cam_position;
+XMVECTOR cam_target;
+XMVECTOR cam_up;
+
+XMVECTOR default_fwd = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
+XMVECTOR default_right = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+XMVECTOR cam_fwd = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
+XMVECTOR cam_right = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+XMMATRIX cam_rotation_matrix;
+XMMATRIX ground_world;
+
+real32 move_left_right = 0.0f;
+real32 move_back_fwd = 0.0f;
+real32 cam_yaw = 0.0f;
+real32 cam_pitch = 0.0f;
 
 ID3D11BlendState* transparency;
 ID3D11RasterizerState *ccw_cull;
 ID3D11RasterizerState *cw_cull;
 
 real32 rotation_state = 0.01f;
-real32 translation_state = -6.27f;
 
 Light light = {};
+
+IDirectInputDevice8* keyboard;
+IDirectInputDevice8* mouse;
+DIMOUSESTATE mouse_last_state;
+LPDIRECTINPUT8 direct_input;
+
+real32 rotx = 0;
+real32 rotz = 0;
+
+// TODO: Setup a way to make rendering calls outside of the object lists for skybox and ground ... 
 
 // TODO: Make shader loading not ad hoc, once it makes sense to do so
 #include "d3d11_vshader.h"
 #include "d3d11_pshader.h"
 
-internal real32 find_dist_from_cam(DirectX::XMMATRIX cube)
+void start_timer()
 {
-    DirectX::XMVECTOR cube_pos = DirectX::XMVectorZero();
-    cube_pos = DirectX::XMVector2TransformCoord(cube_pos, cube);
+    LARGE_INTEGER frequency_count;
+    QueryPerformanceFrequency(&frequency_count);
 
-    real32 dist_x = DirectX::XMVectorGetX(cube_pos) - DirectX::XMVectorGetX(cam_position);
-    real32 dist_y = DirectX::XMVectorGetY(cube_pos) - DirectX::XMVectorGetY(cam_position);
-    real32 dist_z = DirectX::XMVectorGetZ(cube_pos) - DirectX::XMVectorGetZ(cam_position);
+    counts_per_second = double(frequency_count.QuadPart);
+
+    QueryPerformanceCounter(&frequency_count);
+    counter_start = frequency_count.QuadPart;
+}
+
+real64 get_time()
+{
+    LARGE_INTEGER current_time;
+    QueryPerformanceCounter(&current_time);
+    return real64(current_time.QuadPart - counter_start)/counts_per_second;
+}
+
+real64 get_frame_time()
+{
+    LARGE_INTEGER current_time;
+    int64 tick_count;
+    QueryPerformanceCounter(&current_time);
+
+    tick_count = current_time.QuadPart - frame_time_old;
+    frame_time_old = current_time.QuadPart;
+
+    if(tick_count < 0)
+        tick_count = 0;
+
+    return real32(tick_count)/counts_per_second;
+}
+
+internal real32 find_dist_from_cam(XMMATRIX cube)
+{
+    XMVECTOR cube_pos = XMVectorZero();
+    cube_pos = XMVector2TransformCoord(cube_pos, cube);
+
+    real32 dist_x = XMVectorGetX(cube_pos) - XMVectorGetX(cam_position);
+    real32 dist_y = XMVectorGetY(cube_pos) - XMVectorGetY(cam_position);
+    real32 dist_z = XMVectorGetZ(cube_pos) - XMVectorGetZ(cam_position);
 
     real32 cube_dist = dist_x*dist_x + dist_y*dist_y + dist_z*dist_z;
     return(cube_dist);
@@ -145,6 +208,90 @@ void attach_textures(Shape *shapes, int32 size, Texture_Info *texture_info)
 
         ++k;
     }
+}
+
+void update_camera()
+{
+    cam_rotation_matrix = XMMatrixRotationRollPitchYaw(cam_pitch, cam_yaw, 0);
+    cam_target = XMVector3TransformCoord(default_fwd, cam_rotation_matrix);
+    cam_target = XMVector3Normalize(cam_target);
+
+    XMMATRIX rotate_y_temp_matrix = XMMatrixRotationY(cam_yaw);
+
+    cam_right = XMVector3TransformCoord(default_right, rotate_y_temp_matrix);
+    cam_up = XMVector3TransformCoord(cam_up, rotate_y_temp_matrix);
+    cam_fwd = XMVector3TransformCoord(default_fwd, rotate_y_temp_matrix);
+
+    cam_position += move_left_right*cam_right;
+    cam_position += move_back_fwd*cam_fwd;
+
+    move_left_right = 0.0f;
+    move_back_fwd = 0.0f;
+
+    cam_target = cam_position + cam_target;
+
+    cam_view = XMMatrixLookAtLH(cam_position, cam_target, cam_up);
+}
+
+void directinput_init(HINSTANCE h_instance, HWND window)
+{
+    HRESULT hr = DirectInput8Create(h_instance,
+                                    DIRECTINPUT_VERSION,
+                                    IID_IDirectInput8,
+                                    (void **)&direct_input,
+                                    0);
+    AssertHR(hr);
+    hr = direct_input->CreateDevice(GUID_SysKeyboard, &keyboard, 0);
+    AssertHR(hr);
+    hr = direct_input->CreateDevice(GUID_SysMouse, &mouse, 0);
+    AssertHR(hr);
+    hr = keyboard->SetDataFormat(&c_dfDIKeyboard);
+    AssertHR(hr);
+    hr = keyboard->SetCooperativeLevel(window, DISCL_EXCLUSIVE | DISCL_NOWINKEY | DISCL_FOREGROUND);
+    AssertHR(hr);
+}
+
+void detect_input(real64 time, HWND window)
+{
+    DIMOUSESTATE mouse_state_current;
+    BYTE keyboard_state[256];
+    keyboard->Acquire();
+    mouse->Acquire();
+    mouse->GetDeviceState(sizeof(DIMOUSESTATE), &mouse_state_current);
+    keyboard->GetDeviceState(sizeof(keyboard_state), (LPVOID)&keyboard_state);
+
+    if(keyboard_state[DIK_ESCAPE] & 0x80)
+    {
+        PostMessage(window, WM_DESTROY, 0, 0);
+    }
+
+    real32 speed = 15.0f * time;
+
+    if(keyboard_state[DIK_LEFT] & 0x80)
+    {
+        rotz -= speed;
+    }
+    if(keyboard_state[DIK_RIGHT] & 0x80)
+    {
+        rotz += speed;
+    }
+    if(keyboard_state[DIK_UP] & 0x80)
+    {
+        rotx += speed;
+    }
+    if(keyboard_state[DIK_DOWN] & 0x80)
+    {
+        rotx -= speed;
+    }
+    if(mouse_state_current.lX != mouse_last_state.lX || mouse_state_current.lY != mouse_last_state.lY)
+    {
+        cam_yaw += mouse_last_state.lX * 0.001f;
+        cam_pitch += mouse_state_current.lY * 0.001f;
+        mouse_last_state = mouse_state_current;
+    }
+    update_camera();
+
+    return;
 }
 
 void d3d11_init(HINSTANCE hInstance, HWND window)
@@ -275,11 +422,11 @@ void scene_init()
     cb_per_frame_bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     hr = device->CreateBuffer(&cb_per_frame_bd, 0, &cb_per_frame_buffer);
 
-    cam_position = DirectX::XMVectorSet(0.0f, 30.0f, -10.0f, 0.0f);
-    cam_target = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
-    cam_up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-    cam_view = DirectX::XMMatrixLookAtLH(cam_position, cam_target, cam_up);
-    cam_projection = DirectX::XMMatrixPerspectiveFovLH(0.4f*3.14f, (real32)WIDTH/(real32)HEIGHT, 1.0f, 1000.0f);
+    cam_position = XMVectorSet(0.0f, 30.0f, -10.0f, 0.0f);
+    cam_target = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
+    cam_up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    cam_view = XMMatrixLookAtLH(cam_position, cam_target, cam_up);
+    cam_projection = XMMatrixPerspectiveFovLH(0.4f*3.14f, (real32)WIDTH/(real32)HEIGHT, 1.0f, 1000.0f);
 
     D3D11_BLEND_DESC blend_desc = {};
     D3D11_RENDER_TARGET_BLEND_DESC rt_blend_desc = {};
@@ -310,17 +457,17 @@ void load_cube_mesh()
 
     #include "cube.h"
 
-    D3D11_BUFFER_DESC sphere_index_bd = {};
-    sphere_index_bd.Usage = D3D11_USAGE_DEFAULT;
-    sphere_index_bd.ByteWidth = sizeof(DWORD)*12*3;
-    sphere_index_bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    sphere_index_bd.CPUAccessFlags = 0;
-    sphere_index_bd.MiscFlags = 0;
+    D3D11_BUFFER_DESC ground_index_bd = {};
+    ground_index_bd.Usage = D3D11_USAGE_DEFAULT;
+    ground_index_bd.ByteWidth = sizeof(DWORD)*12*3;
+    ground_index_bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    ground_index_bd.CPUAccessFlags = 0;
+    ground_index_bd.MiscFlags = 0;
 
-    D3D11_SUBRESOURCE_DATA sphere_index_init_data ={};
-    sphere_index_init_data.pSysMem = indices;
+    D3D11_SUBRESOURCE_DATA ground_index_init_data ={};
+    ground_index_init_data.pSysMem = indices;
 
-    hr = device->CreateBuffer(&sphere_index_bd, &sphere_index_init_data, &cube_index_buffer);
+    hr = device->CreateBuffer(&ground_index_bd, &ground_index_init_data, &cube_index_buffer);
     AssertHR(hr);
     device_context->IASetIndexBuffer(cube_index_buffer, DXGI_FORMAT_R32_UINT, 0);
 
@@ -353,17 +500,17 @@ void load_sphere_mesh(Sphere *sphere)
 {
     HRESULT hr;
 
-    D3D11_BUFFER_DESC sphere_index_bd = {};
-    sphere_index_bd.Usage = D3D11_USAGE_DEFAULT;
-    sphere_index_bd.ByteWidth = sizeof(DWORD)*360;
-    sphere_index_bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    sphere_index_bd.CPUAccessFlags = 0;
-    sphere_index_bd.MiscFlags = 0;
+    D3D11_BUFFER_DESC ground_index_bd = {};
+    ground_index_bd.Usage = D3D11_USAGE_DEFAULT;
+    ground_index_bd.ByteWidth = sizeof(DWORD)*360;
+    ground_index_bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    ground_index_bd.CPUAccessFlags = 0;
+    ground_index_bd.MiscFlags = 0;
 
-    D3D11_SUBRESOURCE_DATA sphere_index_init_data ={};
-    sphere_index_init_data.pSysMem = sphere->indices;
+    D3D11_SUBRESOURCE_DATA ground_index_init_data ={};
+    ground_index_init_data.pSysMem = sphere->indices;
 
-    hr = device->CreateBuffer(&sphere_index_bd, &sphere_index_init_data, &sphere_index_buffer);
+    hr = device->CreateBuffer(&ground_index_bd, &ground_index_init_data, &sphere_index_buffer);
     AssertHR(hr);
     device_context->IASetIndexBuffer(sphere_index_buffer, DXGI_FORMAT_R32_UINT, 0);
 
@@ -383,6 +530,51 @@ void load_sphere_mesh(Sphere *sphere)
     UINT stride = sizeof(Vertex);
     UINT offset = 0;
     device_context->IASetVertexBuffers(0, 1, &sphere_vert_buffer, &stride, &offset);
+
+    hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
+    AssertHR(hr);
+
+    device_context->IASetInputLayout(vertex_layout); 
+
+    device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+}
+
+void load_ground_mesh()
+{
+    #include "ground.h"
+
+    HRESULT hr;
+
+    D3D11_BUFFER_DESC ground_index_bd = {};
+    ground_index_bd.Usage = D3D11_USAGE_DEFAULT;
+    ground_index_bd.ByteWidth = sizeof(DWORD)*2*3;
+    ground_index_bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    ground_index_bd.CPUAccessFlags = 0;
+    ground_index_bd.MiscFlags = 0;
+
+    D3D11_SUBRESOURCE_DATA ground_index_init_data ={};
+    ground_index_init_data.pSysMem = indices;
+
+    hr = device->CreateBuffer(&ground_index_bd, &ground_index_init_data, &ground_index_buffer);
+    AssertHR(hr);
+    device_context->IASetIndexBuffer(ground_index_buffer, DXGI_FORMAT_R32_UINT, 0);
+
+    D3D11_BUFFER_DESC vert_buffer_desc = {};
+    vert_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
+    vert_buffer_desc.ByteWidth = sizeof(Vertex)*4;
+    vert_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    vert_buffer_desc.CPUAccessFlags = 0;
+    vert_buffer_desc.MiscFlags = 0;
+
+    D3D11_SUBRESOURCE_DATA vert_buffer_data = {};
+    vert_buffer_data.pSysMem = v;
+
+    hr = device->CreateBuffer(&vert_buffer_desc, &vert_buffer_data, &ground_vert_buffer);
+    AssertHR(hr);
+
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    device_context->IASetVertexBuffers(0, 1, &ground_vert_buffer, &stride, &offset);
 
     hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
     AssertHR(hr);
@@ -483,58 +675,119 @@ void load_textures(Texture_Info *texture_info)
     }
 }
 
-void update_and_render(Object_Lists *object_lists, Sphere *sphere)
+void load_ground_texture(Texture_Info *texture_info)
+{
+    HRESULT hr;
+
+    int image_width;
+    int image_height;
+    int image_channels;
+    int image_desired_channels = 4;
+    int image_pitch;
+
+        unsigned char *image_data = stbi_load("03.png",
+                                            &image_width, 
+                                            &image_height, 
+                                            &image_channels, image_desired_channels);
+        assert(image_data);
+        image_pitch = image_width * 4;
+
+        D3D11_TEXTURE2D_DESC texture_desc = {};
+        texture_desc.Width = image_width;
+        texture_desc.Height = image_height;
+        texture_desc.MipLevels = 1;
+        texture_desc.ArraySize = 1;
+        texture_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        texture_desc.SampleDesc.Count = 1;
+        texture_desc.SampleDesc.Quality = 0;
+        texture_desc.Usage = D3D11_USAGE_IMMUTABLE;
+        texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        
+        D3D11_SUBRESOURCE_DATA subresource_data = {};
+        subresource_data.pSysMem = image_data;
+        subresource_data.SysMemPitch = image_pitch;
+
+        hr = device->CreateTexture2D(&texture_desc, &subresource_data, &texture_info->texture);
+        AssertHR(hr);
+        hr = device->CreateShaderResourceView(texture_info->texture, 0, &texture_info->shader_resource_view);
+        AssertHR(hr);
+
+        D3D11_SAMPLER_DESC sampler_desc = {};
+        sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler_desc.MipLODBias = 0.0f;
+        sampler_desc.MaxAnisotropy = 1;
+        sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+        sampler_desc.BorderColor[0] = 1.0f;
+        sampler_desc.BorderColor[1] = 1.0f;
+        sampler_desc.BorderColor[2] = 1.0f;
+        sampler_desc.BorderColor[3] = 1.0f;
+        sampler_desc.MinLOD = -FLT_MAX;
+        sampler_desc.MaxLOD = FLT_MAX;
+        
+        hr = device->CreateSamplerState(&sampler_desc, &texture_info->sampler_state);
+        AssertHR(hr);
+}
+
+void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 {
     int32 num_objects = object_lists->opaque_size + object_lists->transparent_size;
     assert(num_objects > 0 && num_objects < 21);
 
 
-    light.dir = DirectX::XMFLOAT3(0.25f, 0.5f, -1.0f);
-    light.ambient = DirectX::XMFLOAT4(0.7f, 0.7f, 0.7f, 1.0f);
-    light.diffuse = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    light.dir = XMFLOAT3(0.0f, 1.0f, 0.0f);
+    light.ambient = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+    light.diffuse = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
-    rotation_state += 0.0005f;
+    rotation_state += 1.0f * time;
     if (rotation_state > 6.28f)
     {
         rotation_state = 0.0f;
     }
 
-    DirectX::XMMATRIX translation;
-    DirectX::XMMATRIX rotation;
-    DirectX::XMMATRIX scaling;
-    DirectX::XMVECTOR rotation_axis = DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+    XMMATRIX translation;
+    XMMATRIX scaling;
+    XMVECTOR rotation_axis_y = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    XMVECTOR rotation_axis_z = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
+    XMVECTOR rotation_axis_x = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+    XMMATRIX rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
 
-    for(int32 i = 0; i < object_lists->opaque_size; ++i)
+    object_lists->opaque_objects[0].world = XMMatrixIdentity();
+    scaling = XMMatrixScaling(500.0f, 10.0f, 500.0f);
+    translation = XMMatrixTranslation(0.0f, 10.0f, 0.0f);
+    object_lists->opaque_objects[0].world = scaling*translation;
+
+    for(int32 i = 1; i < object_lists->opaque_size; ++i)
     {
-        object_lists->opaque_objects[i].world = DirectX::XMMatrixIdentity();
+        object_lists->opaque_objects[i].world = XMMatrixIdentity();
         real32 x_translate = 0;
         real32 y_translate = 0;
         if(object_lists->opaque_objects[i].shape_type == cube_mesh) 
         {
-
             x_translate = object_lists->opaque_objects[i].x_coord;
             y_translate = object_lists->opaque_objects[i].y_coord;
-            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 4.0f);
-            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
-            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
+            translation = XMMatrixTranslation(x_translate, y_translate, 4.0f);
+            rotation_axis_y = XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
+            rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
             object_lists->opaque_objects[i].world = translation*rotation;
         }
         else if (object_lists->opaque_objects[i].shape_type == sphere_mesh)
         {
-
             x_translate = object_lists->opaque_objects[i].x_coord;
             y_translate = object_lists->opaque_objects[i].y_coord;
-            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
-            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
-            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
-            scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
+            translation = XMMatrixTranslation(x_translate, y_translate, 0.0f);
+            rotation_axis_y = XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
+            rotation = XMMatrixRotationAxis(rotation_axis_y, -rotation_state);
+            scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
             object_lists->opaque_objects[i].world = rotation*scaling*translation;
         }
     }
 
     for(int32 i = 0; i < object_lists->transparent_size; ++i)
     {
-        object_lists->transparent_objects[i].world = DirectX::XMMatrixIdentity();
+        object_lists->transparent_objects[i].world = XMMatrixIdentity();
         real32 x_translate = 0;
         real32 y_translate = 0;
         if(object_lists->transparent_objects[i].shape_type == cube_mesh) 
@@ -542,9 +795,9 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere)
 
             x_translate = object_lists->transparent_objects[i].x_coord;
             y_translate = object_lists->transparent_objects[i].y_coord;
-            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 4.0f);
-            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
-            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, rotation_state);
+            translation = XMMatrixTranslation(x_translate, y_translate, 4.0f);
+            rotation_axis_y = XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
+            rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
             object_lists->transparent_objects[i].world = translation*rotation;
         }
         else if (object_lists->transparent_objects[i].shape_type == sphere_mesh)
@@ -552,10 +805,10 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere)
 
             x_translate = object_lists->transparent_objects[i].x_coord;
             y_translate = object_lists->transparent_objects[i].y_coord;
-            translation = DirectX::XMMatrixTranslation(x_translate, y_translate, 0.0f);
-            rotation_axis = DirectX::XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
-            rotation = DirectX::XMMatrixRotationAxis(rotation_axis, -rotation_state);
-            scaling = DirectX::XMMatrixScaling(1.3f, 1.3f, 1.3f);
+            translation = XMMatrixTranslation(x_translate, y_translate, 0.0f);
+            rotation_axis_y = XMVectorSet(0.0f, y_translate, 0.0f, 0.0f);
+            rotation = XMMatrixRotationAxis(rotation_axis_y, -rotation_state);
+            scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
             object_lists->transparent_objects[i].world = rotation*scaling*translation;
         }
     }
@@ -565,7 +818,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere)
 #if DEBUG
     event_grouper->BeginEvent(L"Clear screen");
 #endif
-    FLOAT color[] = { 0.392f, 0.584f, 0.929f, 1.f };
+    FLOAT color[] = { 0.1f, 0.1f, 0.1f, 1.0f };
     device_context->ClearRenderTargetView(render_target_view, color);
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 #if DEBUG
@@ -576,8 +829,8 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere)
     event_grouper->BeginEvent(L"Setup cb_per_frame");
 #endif
     CB_Per_Frame cb_per_frame = {};
-    cb_per_frame.view = DirectX::XMMatrixTranspose(cam_view);
-    cb_per_frame.projection = DirectX::XMMatrixTranspose(cam_projection);
+    cb_per_frame.view = XMMatrixTranspose(cam_view);
+    cb_per_frame.projection = XMMatrixTranspose(cam_projection);
     cb_per_frame.light = light;
     device_context->UpdateSubresource(cb_per_frame_buffer, 0, 0, &cb_per_frame, 0, 0);
     device_context->VSSetConstantBuffers(1, 1, &cb_per_frame_buffer);
@@ -594,11 +847,11 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere)
     sort_opaque_dist(object_lists->opaque_objects, object_lists->opaque_size);
 
     CB_Per_Object cb_per_object = {};
-    DirectX::XMMATRIX *cbpo_index = (DirectX::XMMATRIX *)&cb_per_object.cube1;
+    XMMATRIX *cbpo_index = (XMMATRIX *)&cb_per_object.cube1;
 
     for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
-            *cbpo_index = DirectX::XMMatrixTranspose(object_lists->opaque_objects[i].world);
+            *cbpo_index = XMMatrixTranspose(object_lists->opaque_objects[i].world);
             cbpo_index += 4;
     }
 
@@ -611,7 +864,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere)
 
     for(int32 i = 0; i < object_lists->transparent_size; ++i)
     {
-            *cbpo_index = DirectX::XMMatrixTranspose(object_lists->transparent_objects[i].world);
+            *cbpo_index = XMMatrixTranspose(object_lists->transparent_objects[i].world);
             cbpo_index += 4;
     }
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
@@ -622,9 +875,17 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere)
 #if DEBUG
     event_grouper->BeginEvent(L"Render opaque objects");
 #endif
+
     device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
 
-    for(int32 i = 0; i < object_lists->opaque_size; ++i)
+    load_ground_mesh();
+    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
+    device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[0].texture_info.shader_resource_view);
+    device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[0].texture_info.sampler_state);
+    device_context->DrawIndexed(6, 0, 0);    
+
+
+    for(int32 i = 1; i < object_lists->opaque_size; ++i)
     {
         if(object_lists->opaque_objects[i].shape_type == cube_mesh)
         {
@@ -830,11 +1091,22 @@ int WINAPI WinMain(HINSTANCE instance,
     attach_textures(object_lists.opaque_objects, object_lists.opaque_size, texture_info);
     attach_textures(object_lists.transparent_objects, object_lists.transparent_size, texture_info);
 
+    directinput_init(instance, window);
+
     running = true;
     while(running)
     {
         messageloop(window);
-        update_and_render(&object_lists, &sphere);
+        frame_count++;
+        if(get_time() > 1.0f)
+        {
+            fps = frame_count;
+            frame_count = 0;
+            start_timer();
+        }
+        frame_time = get_frame_time();
+        detect_input(frame_time, window);
+        update_and_render(&object_lists, &sphere, frame_time);
     }
     
     return(0);
