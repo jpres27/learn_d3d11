@@ -158,13 +158,13 @@ void init_coords(Shape *shapes, int32 size, int32 positive)
     {
         if(positive == 1)
         {
-            shapes[i].x_coord = (real32)(i+2) * 3;
+            shapes[i].x_coord = ((real32)(i)+1.1f) * 3;
             shapes[i].y_coord = 0.0f;
 
         }
         else if(positive == 0)
         {
-            shapes[i].x_coord = ((real32)i+2) * -3;
+            shapes[i].x_coord = ((real32)(i)+1.1f) * -3;
             shapes[i].y_coord = 0.0f;
         }
     }
@@ -316,9 +316,9 @@ void scene_init()
     cb_per_frame_bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     hr = device->CreateBuffer(&cb_per_frame_bd, 0, &cb_per_frame_buffer);
 
-    cam_position = XMVectorSet(0.0f, 3.0f, -8.0f, 0.0f);
+    cam_position = XMVectorSet(0.0f, 3.0f, -16.0f, 0.0f);
     cam_target = XMVectorSet(2.0f, 0.0f, 0.0f, 0.0f);
-    cam_up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+    cam_up = XMVectorSet(0.0f, 2.0f, 0.0f, 0.0f);
     cam_view = XMMatrixLookAtLH(cam_position, cam_target, cam_up);
     cam_projection = XMMatrixPerspectiveFovLH(0.4f*3.14f, (real32)WIDTH/(real32)HEIGHT, 1.0f, 1000.0f);
 
@@ -628,7 +628,7 @@ void load_ground_texture(Texture_Info *texture_info)
 void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 {
     int32 num_objects = object_lists->opaque_size + object_lists->transparent_size;
-    assert(num_objects > 0 && num_objects < 10);
+    assert(num_objects > 0 && num_objects <= 10);
 
 
     light.dir = XMFLOAT3(0.0f, 1.0f, 0.0f);
@@ -647,8 +647,8 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     XMVECTOR rotation_axis_z = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
     XMVECTOR rotation_axis_x = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
     XMMATRIX rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+    real32 roty = 1.0f;
 
-#if 0
     for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
         object_lists->opaque_objects[i].world = XMMatrixIdentity();
@@ -657,7 +657,9 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
         {
             x_translate = object_lists->opaque_objects[i].x_coord;
             translation = XMMatrixTranslation(x_translate, 0.0f, 4.0f);
+            rotation_axis_y = XMVectorSet(0.0f, roty, 0.0f, 0.0f);
             rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+            roty = roty + 1.0f;
             object_lists->opaque_objects[i].world = translation*rotation;
         }
         else if (object_lists->opaque_objects[i].shape_type == sphere_mesh)
@@ -665,6 +667,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             x_translate = object_lists->opaque_objects[i].x_coord;
             translation = XMMatrixTranslation(x_translate, 0.0f, 0.0f);
             rotation = XMMatrixRotationAxis(rotation_axis_y, -rotation_state);
+            roty = roty + 1.0f;
             scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
             object_lists->opaque_objects[i].world = rotation*scaling*translation;
         }
@@ -680,8 +683,9 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 
             x_translate = object_lists->transparent_objects[i].x_coord;
             translation = XMMatrixTranslation(x_translate, y_translate, 4.0f);
-            rotation_axis_y = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+            rotation_axis_y = XMVectorSet(0.0f, roty, 0.0f, 0.0f);
             rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+            roty = roty + 1.0f;
             object_lists->transparent_objects[i].world = translation*rotation;
         }
         else if (object_lists->transparent_objects[i].shape_type == sphere_mesh)
@@ -689,14 +693,15 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 
             x_translate = object_lists->transparent_objects[i].x_coord;
             translation = XMMatrixTranslation(x_translate, y_translate, 0.0f);
-            rotation_axis_y = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+            rotation_axis_y = XMVectorSet(0.0f, roty, 0.0f, 0.0f);  
             rotation = XMMatrixRotationAxis(rotation_axis_y, -rotation_state);
+            roty = roty + 1.0f;
             scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
             object_lists->transparent_objects[i].world = rotation*scaling*translation;
         }
     }
-#endif
 
+#if 0
     for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
         object_lists->opaque_objects[i].world = XMMatrixIdentity();
@@ -714,13 +719,14 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
         rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
         object_lists->transparent_objects[i].world = translation*rotation;
     }
+#endif
 
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
 #if DEBUG
     event_grouper->BeginEvent(L"Clear screen");
 #endif
-    FLOAT color[] = { 0.1f, 0.1f, 0.1f, 1.0f };
+    FLOAT color[] = { 0.3f, 0.3f, 0.3f, 1.0f };
     device_context->ClearRenderTargetView(render_target_view, color);
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 #if DEBUG
@@ -812,7 +818,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 #if DEBUG
     event_grouper->BeginEvent(L"Render transparent objects");
 #endif
-    real32 blend_factor[] = {0.75f, 0.75f, 0.75f, 1.0f};
+    real32 blend_factor[] = {0.5f, 0.5f, 0.5f, 0.7f};
     device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
 
     for(int32 i = 0; i < object_lists->transparent_size; ++i)
@@ -828,10 +834,10 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
-            device_context->RSSetState(ccw_cull);
+            // device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(36, 0, 0);
-            device_context->RSSetState(cw_cull);
-            device_context->DrawIndexed(36, 0, 0);
+            // device_context->RSSetState(cw_cull);
+            // device_context->DrawIndexed(36, 0, 0);
             ++k;
             #if DEBUG
             event_grouper->EndEvent();
@@ -847,10 +853,10 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
-            device_context->RSSetState(ccw_cull);
+            //device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(360, 0, 0);
-            device_context->RSSetState(cw_cull);
-            device_context->DrawIndexed(360, 0, 0);
+            // device_context->RSSetState(cw_cull);
+            // device_context->DrawIndexed(360, 0, 0);
             ++k;
             #if DEBUG
             event_grouper->EndEvent();
@@ -965,22 +971,22 @@ int WINAPI WinMain(HINSTANCE instance,
     d3d11_init(instance, window);
 
     srand((unsigned int)time(0));
-#if 0
+
     int32 num_objects = (rand() % 10) + 1;
     if(num_objects < 3)
     {
         num_objects = 3;
     }
-    int32 num_transparent = 2;
+    int32 num_transparent = (rand() % num_objects) + 1;
     int32 num_opaque = num_objects - num_transparent;
 
-    int32 num_opaque_sphere = 1;
+    int32 num_opaque_sphere = (rand() % num_opaque) + 1;
     int32 num_opaque_cube = num_opaque - num_opaque_sphere;
 
-    int32 num_transparent_sphere = 1;
+    int32 num_transparent_sphere = (rand() % num_transparent) + 1;
     int32 num_transparent_cube = num_transparent - num_transparent_sphere;
-#endif
 
+#if 0
     int32 num_objects = 8;
     int32 num_transparent = 4;
     int32 num_opaque = 4;
@@ -988,6 +994,7 @@ int WINAPI WinMain(HINSTANCE instance,
     int32 num_opaque_cube = 2;
     int32 num_transparent_sphere = 2;
     int32 num_transparent_cube = 2;
+#endif
 
     Sphere sphere = {};
     build_smooth_sphere(&sphere);
