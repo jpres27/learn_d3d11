@@ -152,19 +152,19 @@ void init_shape(Shape *shapes, int num_cube, int num_sphere)
     }
 }
 
-void init_coords(Shape *shapes, int32 size, bool32 positive)
+void init_coords(Shape *shapes, int32 size, int32 positive)
 {
     for(int i = 0; i < size; ++i)
     {
-        if(positive)
+        if(positive == 1)
         {
             shapes[i].x_coord = (real32)i * 3;
             shapes[i].y_coord = 0.0f;
 
         }
-        else 
+        else if(positive == 0)
         {
-            shapes[i].x_coord = ((real32)i) * -3;
+            shapes[i].x_coord = ((real32)i) * -5;
             shapes[i].y_coord = 0.0f;
         }
     }
@@ -648,6 +648,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     XMVECTOR rotation_axis_x = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
     XMMATRIX rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
 
+#if 0
     for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
         object_lists->opaque_objects[i].world = XMMatrixIdentity();
@@ -656,7 +657,6 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
         {
             x_translate = object_lists->opaque_objects[i].x_coord;
             translation = XMMatrixTranslation(x_translate, 0.0f, 4.0f);
-            rotation_axis_y = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
             rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
             object_lists->opaque_objects[i].world = translation*rotation;
         }
@@ -664,7 +664,6 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
         {
             x_translate = object_lists->opaque_objects[i].x_coord;
             translation = XMMatrixTranslation(x_translate, 0.0f, 0.0f);
-            rotation_axis_y = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
             rotation = XMMatrixRotationAxis(rotation_axis_y, -rotation_state);
             scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
             object_lists->opaque_objects[i].world = rotation*scaling*translation;
@@ -695,6 +694,25 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
             object_lists->transparent_objects[i].world = rotation*scaling*translation;
         }
+    }
+#endif
+
+    for(int32 i = 0; i < object_lists->opaque_size; ++i)
+    {
+        object_lists->opaque_objects[i].world = XMMatrixIdentity();
+        real32 x_translate = object_lists->opaque_objects[i].x_coord;
+        translation = XMMatrixTranslation(x_translate, 0.0f, 4.0f);
+        rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+        object_lists->opaque_objects[i].world = translation*rotation;
+    }
+    
+    for(int32 i = 0; i < object_lists->transparent_size; ++i)
+    {
+        object_lists->transparent_objects[i].world = XMMatrixIdentity();
+        real32 x_translate = object_lists->transparent_objects[i].x_coord;
+        translation = XMMatrixTranslation(x_translate, 0.0f, 4.0f);
+        rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+        object_lists->transparent_objects[i].world = translation*rotation;
     }
 
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
@@ -980,8 +998,8 @@ int WINAPI WinMain(HINSTANCE instance,
 
     init_shape(object_lists.opaque_objects, num_opaque_cube, num_opaque_sphere);
     init_shape(object_lists.transparent_objects, num_transparent_cube, num_transparent_sphere);
-    init_coords(object_lists.opaque_objects, num_opaque, true);
-    init_coords(object_lists.transparent_objects, num_transparent, false);
+    init_coords(object_lists.opaque_objects, num_opaque, 1);
+    init_coords(object_lists.transparent_objects, num_transparent, 0);
 
     scene_init();
 
