@@ -164,7 +164,7 @@ void init_coords(Shape *shapes, int32 size, int32 positive)
         }
         else if(positive == 0)
         {
-            shapes[i].x_coord = ((real32)i) * -5;
+            shapes[i].x_coord = ((real32)i) * -3;
             shapes[i].y_coord = 0.0f;
         }
     }
@@ -811,15 +811,19 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     real32 blend_factor[] = {0.75f, 0.75f, 0.75f, 1.0f};
     device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
 
+    int32 k = object_lists->opaque_size;
+
     for(int32 i = 0; i < object_lists->transparent_size; ++i)
     {
+        ++k;
+        assert(k < object_lists->num_objects + 1);
         if(object_lists->transparent_objects[i].shape_type == cube_mesh)
         {
             #if DEBUG
             event_grouper->BeginEvent(L"Render transparent cube");
             #endif
             load_cube_mesh();
-            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
+            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
@@ -837,7 +841,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             event_grouper->BeginEvent(L"Render transparent sphere");
             #endif
             load_sphere_mesh(sphere);
-            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * i;
+            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
