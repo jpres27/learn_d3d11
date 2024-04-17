@@ -811,7 +811,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     real32 blend_factor[] = {0.75f, 0.75f, 0.75f, 1.0f};
     device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
 
-    int32 k = object_lists->opaque_size;
+    int32 k = object_lists->opaque_size - 1;
 
     for(int32 i = 0; i < object_lists->transparent_size; ++i)
     {
