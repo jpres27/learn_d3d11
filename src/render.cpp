@@ -20,10 +20,6 @@
 #include "utils.cpp"
 #include "geometry.cpp"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-// #define STBI_ONLY_PNG
-
 using namespace DirectX;
 
 global_variable bool32 running;
@@ -58,6 +54,9 @@ ID3D11VertexShader* vertex_shader;
 ID3D11PixelShader* pixel_shader;
 ID3D11InputLayout* vertex_layout;
 
+ID3D11VertexShader *skymap_vs;
+ID3D11PixelShader *skymap_ps;
+
 ID3D11Buffer* cb_per_object_buffer;
 ID3D11Buffer* cb_per_frame_buffer;
 
@@ -84,7 +83,9 @@ real32 move_back_forward = 0.0f;
 real32 cam_yaw = 0.0f;
 real32 cam_pitch = 0.0f;
 
+ID3D11DepthStencilState *ds_less_equal;
 ID3D11BlendState* transparency;
+ID3D11RasterizerState *cull_none;
 ID3D11RasterizerState *ccw_cull;
 ID3D11RasterizerState *cw_cull;
 
@@ -102,6 +103,11 @@ Light light = {};
 // TODO: Make shader loading not ad hoc, once it makes sense to do so
 #include "d3d11_vshader.h"
 #include "d3d11_pshader.h"
+#include "skymap_vshader.h"
+#include "skymap_pshader.h"
+
+#include "load_mesh.cpp"
+#include "load_texture.cpp"
 
 void start_timer()
 {
@@ -336,6 +342,9 @@ void scene_init()
     hr = device->CreateVertexShader(d3d11_vshader, sizeof(d3d11_vshader), 0, &vertex_shader);
     hr = device->CreatePixelShader(d3d11_pshader, sizeof(d3d11_pshader), 0, &pixel_shader);
 
+    hr = device->CreateVertexShader(skymap_vshader, sizeof(skymap_vshader), 0, &skymap_vs);
+    hr = device->CreatePixelShader(skymap_pshader, sizeof(skymap_pshader), 0, &skymap_ps);
+
     D3D11_VIEWPORT viewport = {};
     viewport.TopLeftX = 0;
     viewport.TopLeftY = 0;
@@ -384,6 +393,15 @@ void scene_init()
     hr = device->CreateRasterizerState(&cmdesc, &ccw_cull);
     cmdesc.FrontCounterClockwise = false;
     hr = device->CreateRasterizerState(&cmdesc, &cw_cull);
+    // Should we clear the struct for this last one?
+    cmdesc.CullMode = D3D11_CULL_NONE;
+    hr = device->CreateRasterizerState(&cmdesc, &cull_none);
+
+    D3D11_DEPTH_STENCIL_DESC dss_desc = {};
+    dss_desc.DepthEnable = true;
+    dss_desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+    dss_desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+    device->CreateDepthStencilState(&dss_desc, &ds_less_equal);
 }
 
 void update_camera()
@@ -454,286 +472,6 @@ void detect_input(real64 time, HWND window)
     update_camera();
 
     return;
-}
-
-void load_cube_mesh()
-{
-    HRESULT hr;
-
-    #include "cube.h"
-
-    D3D11_BUFFER_DESC ground_index_bd = {};
-    ground_index_bd.Usage = D3D11_USAGE_DEFAULT;
-    ground_index_bd.ByteWidth = sizeof(DWORD)*12*3;
-    ground_index_bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    ground_index_bd.CPUAccessFlags = 0;
-    ground_index_bd.MiscFlags = 0;
-
-    D3D11_SUBRESOURCE_DATA ground_index_init_data ={};
-    ground_index_init_data.pSysMem = indices;
-
-    hr = device->CreateBuffer(&ground_index_bd, &ground_index_init_data, &cube_index_buffer);
-    AssertHR(hr);
-    device_context->IASetIndexBuffer(cube_index_buffer, DXGI_FORMAT_R32_UINT, 0);
-
-    D3D11_BUFFER_DESC vert_buffer_desc = {};
-    vert_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    vert_buffer_desc.ByteWidth = sizeof(Vertex)*24;
-    vert_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    vert_buffer_desc.CPUAccessFlags = 0;
-    vert_buffer_desc.MiscFlags = 0;
-
-    D3D11_SUBRESOURCE_DATA vert_buffer_data = {};
-    vert_buffer_data.pSysMem = v;
-
-    hr = device->CreateBuffer(&vert_buffer_desc, &vert_buffer_data, &cube_vert_buffer);
-    AssertHR(hr);
-
-    UINT stride = sizeof(Vertex);
-    UINT offset = 0;
-    device_context->IASetVertexBuffers(0, 1, &cube_vert_buffer, &stride, &offset);
-
-    hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
-    AssertHR(hr);
-
-    device_context->IASetInputLayout(vertex_layout); 
-
-    device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-}
-
-void load_sphere_mesh(Sphere *sphere)
-{
-    HRESULT hr;
-
-    D3D11_BUFFER_DESC ground_index_bd = {};
-    ground_index_bd.Usage = D3D11_USAGE_DEFAULT;
-    ground_index_bd.ByteWidth = sizeof(DWORD)*360;
-    ground_index_bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    ground_index_bd.CPUAccessFlags = 0;
-    ground_index_bd.MiscFlags = 0;
-
-    D3D11_SUBRESOURCE_DATA ground_index_init_data ={};
-    ground_index_init_data.pSysMem = sphere->indices;
-
-    hr = device->CreateBuffer(&ground_index_bd, &ground_index_init_data, &sphere_index_buffer);
-    AssertHR(hr);
-    device_context->IASetIndexBuffer(sphere_index_buffer, DXGI_FORMAT_R32_UINT, 0);
-
-    D3D11_BUFFER_DESC vert_buffer_desc = {};
-    vert_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    vert_buffer_desc.ByteWidth = sizeof(Vertex)*91;
-    vert_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    vert_buffer_desc.CPUAccessFlags = 0;
-    vert_buffer_desc.MiscFlags = 0;
-
-    D3D11_SUBRESOURCE_DATA vert_buffer_data = {};
-    vert_buffer_data.pSysMem = sphere->vertices;
-
-    hr = device->CreateBuffer(&vert_buffer_desc, &vert_buffer_data, &sphere_vert_buffer);
-    AssertHR(hr);
-
-    UINT stride = sizeof(Vertex);
-    UINT offset = 0;
-    device_context->IASetVertexBuffers(0, 1, &sphere_vert_buffer, &stride, &offset);
-
-    hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
-    AssertHR(hr);
-
-    device_context->IASetInputLayout(vertex_layout); 
-
-    device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-}
-
-void load_ground_mesh()
-{
-    #include "ground.h"
-
-    HRESULT hr;
-
-    D3D11_BUFFER_DESC ground_index_bd = {};
-    ground_index_bd.Usage = D3D11_USAGE_DEFAULT;
-    ground_index_bd.ByteWidth = sizeof(DWORD)*2*3;
-    ground_index_bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    ground_index_bd.CPUAccessFlags = 0;
-    ground_index_bd.MiscFlags = 0;
-
-    D3D11_SUBRESOURCE_DATA ground_index_init_data ={};
-    ground_index_init_data.pSysMem = indices;
-
-    hr = device->CreateBuffer(&ground_index_bd, &ground_index_init_data, &ground_index_buffer);
-    AssertHR(hr);
-    device_context->IASetIndexBuffer(ground_index_buffer, DXGI_FORMAT_R32_UINT, 0);
-
-    D3D11_BUFFER_DESC vert_buffer_desc = {};
-    vert_buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    vert_buffer_desc.ByteWidth = sizeof(Vertex)*4;
-    vert_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    vert_buffer_desc.CPUAccessFlags = 0;
-    vert_buffer_desc.MiscFlags = 0;
-
-    D3D11_SUBRESOURCE_DATA vert_buffer_data = {};
-    vert_buffer_data.pSysMem = v;
-
-    hr = device->CreateBuffer(&vert_buffer_desc, &vert_buffer_data, &ground_vert_buffer);
-    AssertHR(hr);
-
-    UINT stride = sizeof(Vertex);
-    UINT offset = 0;
-    device_context->IASetVertexBuffers(0, 1, &ground_vert_buffer, &stride, &offset);
-
-    hr = device->CreateInputLayout(layout, ARRAYSIZE(layout), d3d11_vshader, sizeof(d3d11_vshader), &vertex_layout);
-    AssertHR(hr);
-
-    device_context->IASetInputLayout(vertex_layout); 
-
-    device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-}
-
-void load_textures(Texture_Info *texture_info)
-{
-    HRESULT hr;
-
-    char *filenames[10];
-    filenames[0] = "01.png";
-    filenames[1] = "02.png";
-    filenames[2] = "03.png";
-    filenames[3] = "04.png";
-    filenames[4] = "05.png";
-    filenames[5] = "06.png";
-    filenames[6] = "07.png";
-    filenames[7] = "08.png";
-    filenames[8] = "09.png";
-    filenames[9] = "10.png";
-
-    char *shuffled_filenames[10];
-    bool32 visited[10];
-    for(int i = 0; i < 10; ++i)
-    {
-        visited[i] = false;
-    }
-
-    for (int i = 0; i < 10; ++i)
-    {
-        int j = rand() % 10;
-        while(visited[j])
-        {
-            j = rand() % 10;
-        }
-        shuffled_filenames[i] = filenames[j];
-        visited[j] = true;
-    }    
-
-    int image_width;
-    int image_height;
-    int image_channels;
-    int image_desired_channels = 4;
-    int image_pitch;
-
-    // TODO: Completely overhaul the way we load and save textures so that any texture can be applied to any object easily
-
-    for(int i = 0; i < 10; ++i)
-    {
-        unsigned char *image_data = stbi_load(shuffled_filenames[i],
-                                            &image_width, 
-                                            &image_height, 
-                                            &image_channels, image_desired_channels);
-        assert(image_data);
-        image_pitch = image_width * 4;
-
-        D3D11_TEXTURE2D_DESC texture_desc = {};
-        texture_desc.Width = image_width;
-        texture_desc.Height = image_height;
-        texture_desc.MipLevels = 1;
-        texture_desc.ArraySize = 1;
-        texture_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-        texture_desc.SampleDesc.Count = 1;
-        texture_desc.SampleDesc.Quality = 0;
-        texture_desc.Usage = D3D11_USAGE_IMMUTABLE;
-        texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        
-        D3D11_SUBRESOURCE_DATA subresource_data = {};
-        subresource_data.pSysMem = image_data;
-        subresource_data.SysMemPitch = image_pitch;
-
-        hr = device->CreateTexture2D(&texture_desc, &subresource_data, &texture_info[i].texture);
-        AssertHR(hr);
-        hr = device->CreateShaderResourceView(texture_info[i].texture, 0, &texture_info[i].shader_resource_view);
-        AssertHR(hr);
-
-        D3D11_SAMPLER_DESC sampler_desc = {};
-        sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-        sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sampler_desc.MipLODBias = 0.0f;
-        sampler_desc.MaxAnisotropy = 1;
-        sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-        sampler_desc.BorderColor[0] = 1.0f;
-        sampler_desc.BorderColor[1] = 1.0f;
-        sampler_desc.BorderColor[2] = 1.0f;
-        sampler_desc.BorderColor[3] = 1.0f;
-        sampler_desc.MinLOD = -FLT_MAX;
-        sampler_desc.MaxLOD = FLT_MAX;
-        
-        hr = device->CreateSamplerState(&sampler_desc, &texture_info[i].sampler_state);
-        AssertHR(hr);
-    }
-}
-
-void load_ground_texture(Texture_Info *texture_info)
-{
-    HRESULT hr;
-
-    int image_width;
-    int image_height;
-    int image_channels;
-    int image_desired_channels = 4;
-    int image_pitch;
-
-        unsigned char *image_data = stbi_load("04.png",
-                                            &image_width, 
-                                            &image_height, 
-                                            &image_channels, image_desired_channels);
-        assert(image_data);
-        image_pitch = image_width * 4;
-
-        D3D11_TEXTURE2D_DESC texture_desc = {};
-        texture_desc.Width = image_width;
-        texture_desc.Height = image_height;
-        texture_desc.MipLevels = 1;
-        texture_desc.ArraySize = 1;
-        texture_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-        texture_desc.SampleDesc.Count = 1;
-        texture_desc.SampleDesc.Quality = 0;
-        texture_desc.Usage = D3D11_USAGE_IMMUTABLE;
-        texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        
-        D3D11_SUBRESOURCE_DATA subresource_data = {};
-        subresource_data.pSysMem = image_data;
-        subresource_data.SysMemPitch = image_pitch;
-
-        hr = device->CreateTexture2D(&texture_desc, &subresource_data, &texture_info->texture);
-        AssertHR(hr);
-        hr = device->CreateShaderResourceView(texture_info->texture, 0, &texture_info->shader_resource_view);
-        AssertHR(hr);
-
-        D3D11_SAMPLER_DESC sampler_desc = {};
-        sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-        sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sampler_desc.MipLODBias = 0.0f;
-        sampler_desc.MaxAnisotropy = 1;
-        sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-        sampler_desc.BorderColor[0] = 1.0f;
-        sampler_desc.BorderColor[1] = 1.0f;
-        sampler_desc.BorderColor[2] = 1.0f;
-        sampler_desc.BorderColor[3] = 1.0f;
-        sampler_desc.MinLOD = -FLT_MAX;
-        sampler_desc.MaxLOD = FLT_MAX;
-        
-        hr = device->CreateSamplerState(&sampler_desc, &texture_info->sampler_state);
-        AssertHR(hr);
 }
 
 void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
@@ -822,8 +560,13 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     translation = XMMatrixTranslation(0.0f, 10.0f, 0.0f);
     object_lists->opaque_objects[0].world = scaling*translation;
 
+    object_lists->opaque_objects[1].world = XMMatrixIdentity();
+    scaling = XMMatrixScaling(5.0f, 5.0f, 5.0f);
+    translation = XMMatrixTranslation(XMVectorGetX(cam_position), XMVectorGetY(cam_position), XMVectorGetZ(cam_position));
+    object_lists->opaque_objects[1].world = scaling*translation;
+
 #if 0
-    for(int32 i = 1; i < object_lists->opaque_size; ++i)
+    for(int32 i = 2; i < object_lists->opaque_size; ++i)
     {
         object_lists->opaque_objects[i].world = XMMatrixIdentity();
         real32 x_translate = object_lists->opaque_objects[i].x_coord;
@@ -909,13 +652,34 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 #endif
 
     load_ground_mesh();
-    Texture_Info ground_texture_info;
+    Texture_Info ground_texture_info = {};
     load_ground_texture(&ground_texture_info);
     device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
     device_context->PSSetShaderResources(0, 1, &ground_texture_info.shader_resource_view);
     device_context->PSSetSamplers(0, 1, &ground_texture_info.sampler_state);
     device_context->RSSetState(ccw_cull);
     device_context->DrawIndexed(6, 0, 0);
+
+    ++k;
+
+    load_sphere_mesh(sphere);
+    Texture_Info skymap_texture = {};
+    load_sky_texture(&skymap_texture);
+    offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
+    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
+    device_context->PSSetShaderResources(0, 1, &skymap_texture.shader_resource_view);
+    device_context->PSSetSamplers(0, 1, &skymap_texture.sampler_state);
+    device_context->VSSetShader(skymap_vs, 0, 0);
+    device_context->PSSetShader(skymap_ps, 0, 0);
+    device_context->OMSetDepthStencilState(ds_less_equal, 0);
+    device_context->RSSetState(cull_none);
+    device_context->DrawIndexed(360, 0, 0);
+
+    // Reset state
+    device_context->VSSetShader(vertex_shader, 0, 0);
+    device_context->PSSetShader(pixel_shader, 0, 0);
+    device_context->OMSetDepthStencilState(0, 0);
+
 
 #if DEBUG
     event_grouper->EndEvent();
@@ -936,6 +700,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+            device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(36, 0, 0);
             ++k;
         }
@@ -946,6 +711,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+            device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(360, 0, 0);
             ++k;
         }
@@ -973,6 +739,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
+            device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(36, 0, 0);
 
             ++k;
@@ -990,7 +757,9 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
+            device_context->RSSetState(ccw_cull); 
             device_context->DrawIndexed(360, 0, 0);
+
             ++k;
             #if DEBUG
             event_grouper->EndEvent();
