@@ -1,6 +1,7 @@
 #pragma comment (lib, "gdi32.lib")
 #pragma comment (lib, "user32.lib")
 #pragma comment (lib, "d3d11.lib")
+#pragma comment (lib, "dinput8")
 #pragma comment (lib, "dxguid")
 #pragma comment (lib, "dxgi")
 
@@ -11,6 +12,7 @@
 #include <dxgi1_2.h>
 #include <dxgidebug.h>
 #include <DirectXMath.h>
+#include <dinput.h>
 
 #include <time.h>
 
@@ -69,9 +71,27 @@ XMVECTOR cam_position;
 XMVECTOR cam_target;
 XMVECTOR cam_up;
 
+XMVECTOR default_forward = XMVectorSet(0.0f,0.0f,1.0f, 0.0f);
+XMVECTOR default_right = XMVectorSet(1.0f,0.0f,0.0f, 0.0f);
+XMVECTOR cam_forward = XMVectorSet(0.0f,0.0f,1.0f, 0.0f);
+XMVECTOR cam_right = XMVectorSet(1.0f,0.0f,0.0f, 0.0f);
+
+XMMATRIX cam_rotation_matrix;
+XMMATRIX ground_world;
+
+real32 move_left_right = 0.0f;
+real32 move_back_forward = 0.0f;
+real32 cam_yaw = 0.0f;
+real32 cam_pitch = 0.0f;
+
 ID3D11BlendState* transparency;
 ID3D11RasterizerState *ccw_cull;
 ID3D11RasterizerState *cw_cull;
+
+IDirectInputDevice8* di_keyboard;
+IDirectInputDevice8* di_mouse;
+DIMOUSESTATE mouse_last_state;
+LPDIRECTINPUT8 direct_input;
 
 real64 rotation_state = 0.01f;
 
@@ -114,6 +134,30 @@ real64 get_frame_time()
         tick_count = 0;
 
     return real32(tick_count)/counts_per_second;
+}
+
+void init_direct_input(HINSTANCE instance, HWND window)
+{
+    HRESULT hr;
+    hr = DirectInput8Create(instance,
+        DIRECTINPUT_VERSION,
+        IID_IDirectInput8,
+        (void**)&direct_input,
+        NULL); 
+
+    hr = direct_input->CreateDevice(GUID_SysKeyboard,
+        &di_keyboard,
+        NULL);
+
+    hr = direct_input->CreateDevice(GUID_SysMouse,
+        &di_mouse,
+        NULL);
+
+    hr = di_keyboard->SetDataFormat(&c_dfDIKeyboard);
+    hr = di_keyboard->SetCooperativeLevel(window, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE);
+
+    hr = di_mouse->SetDataFormat(&c_dfDIMouse);
+    hr = di_mouse->SetCooperativeLevel(window, DISCL_EXCLUSIVE | DISCL_NOWINKEY | DISCL_FOREGROUND);
 }
 
 internal real32 find_dist_from_cam(XMMATRIX cube)
@@ -292,9 +336,6 @@ void scene_init()
     hr = device->CreateVertexShader(d3d11_vshader, sizeof(d3d11_vshader), 0, &vertex_shader);
     hr = device->CreatePixelShader(d3d11_pshader, sizeof(d3d11_pshader), 0, &pixel_shader);
 
-    device_context->VSSetShader(vertex_shader, 0, 0);
-    device_context->PSSetShader(pixel_shader, 0, 0);
-
     D3D11_VIEWPORT viewport = {};
     viewport.TopLeftX = 0;
     viewport.TopLeftY = 0;
@@ -343,6 +384,76 @@ void scene_init()
     hr = device->CreateRasterizerState(&cmdesc, &ccw_cull);
     cmdesc.FrontCounterClockwise = false;
     hr = device->CreateRasterizerState(&cmdesc, &cw_cull);
+}
+
+void update_camera()
+{
+    cam_rotation_matrix = XMMatrixRotationRollPitchYaw(cam_pitch, cam_yaw, 0);
+    cam_target = XMVector3TransformCoord(default_forward, cam_rotation_matrix);
+    cam_target = XMVector3Normalize(cam_target);
+
+    XMMATRIX rotate_y_temp_matrix;
+    rotate_y_temp_matrix = XMMatrixRotationY(cam_yaw);
+
+    cam_right = XMVector3TransformCoord(default_right, rotate_y_temp_matrix);
+    cam_up = XMVector3TransformCoord(cam_up, rotate_y_temp_matrix);
+    cam_forward = XMVector3TransformCoord(default_forward, rotate_y_temp_matrix);
+
+    cam_position += move_left_right*cam_right;
+    cam_position += move_back_forward*cam_forward;
+    move_left_right = 0.0f;
+    move_back_forward = 0.0f;
+
+    cam_target = cam_position + cam_target;
+    cam_view = XMMatrixLookAtLH(cam_position, cam_target, cam_up);
+}
+
+void detect_input(real64 time, HWND window)
+{
+    DIMOUSESTATE mouse_current_state;
+
+    BYTE keyboardState[256];
+
+    di_keyboard->Acquire();
+    di_mouse->Acquire();
+
+    di_mouse->GetDeviceState(sizeof(DIMOUSESTATE), &mouse_current_state);
+
+    di_keyboard->GetDeviceState(sizeof(keyboardState),(LPVOID)&keyboardState);
+
+    if(keyboardState[DIK_ESCAPE] & 0x80)
+        PostMessage(window, WM_DESTROY, 0, 0);
+
+    real32 speed = 15.0f * time;
+
+    if(keyboardState[DIK_A] & 0x80)
+    {
+        move_left_right -= speed;
+    }
+    if(keyboardState[DIK_D] & 0x80)
+    {
+        move_left_right += speed;
+    }
+    if(keyboardState[DIK_W] & 0x80)
+    {
+        move_back_forward += speed;
+    }
+    if(keyboardState[DIK_S] & 0x80)
+    {
+        move_back_forward -= speed;
+    }
+    if((mouse_current_state.lX != mouse_last_state.lX) || (mouse_current_state.lY != mouse_last_state.lY))
+    {
+        cam_yaw += mouse_last_state.lX * 0.001f;
+
+        cam_pitch += mouse_current_state.lY * 0.001f;
+
+        mouse_last_state = mouse_current_state;
+    }
+
+    update_camera();
+
+    return;
 }
 
 void load_cube_mesh()
@@ -579,7 +690,7 @@ void load_ground_texture(Texture_Info *texture_info)
     int image_desired_channels = 4;
     int image_pitch;
 
-        unsigned char *image_data = stbi_load("03.png",
+        unsigned char *image_data = stbi_load("04.png",
                                             &image_width, 
                                             &image_height, 
                                             &image_channels, image_desired_channels);
@@ -627,6 +738,9 @@ void load_ground_texture(Texture_Info *texture_info)
 
 void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 {
+    device_context->VSSetShader(vertex_shader, 0, 0);
+    device_context->PSSetShader(pixel_shader, 0, 0);
+
     int32 num_objects = object_lists->opaque_size + object_lists->transparent_size;
     assert(num_objects > 0 && num_objects <= 10);
 
@@ -641,6 +755,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
         rotation_state = 0.0f;
     }
 
+
     XMMATRIX translation;
     XMMATRIX scaling;
     XMVECTOR rotation_axis_y = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
@@ -648,7 +763,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     XMVECTOR rotation_axis_x = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
     XMMATRIX rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
     real32 roty = 1.0f;
-
+#if 0
     for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
         object_lists->opaque_objects[i].world = XMMatrixIdentity();
@@ -700,9 +815,15 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             object_lists->transparent_objects[i].world = rotation*scaling*translation;
         }
     }
+#endif
+
+    object_lists->opaque_objects[0].world = XMMatrixIdentity();
+    scaling = XMMatrixScaling(500.0f, 10.0f, 500.0f);
+    translation = XMMatrixTranslation(0.0f, 10.0f, 0.0f);
+    object_lists->opaque_objects[0].world = scaling*translation;
 
 #if 0
-    for(int32 i = 0; i < object_lists->opaque_size; ++i)
+    for(int32 i = 1; i < object_lists->opaque_size; ++i)
     {
         object_lists->opaque_objects[i].world = XMMatrixIdentity();
         real32 x_translate = object_lists->opaque_objects[i].x_coord;
@@ -780,13 +901,31 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     UINT offset = 0;
     UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
 
+    device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
+    int32 k = 0;
+
+#if DEBUG
+    event_grouper->BeginEvent(L"Render ground");
+#endif
+
+    load_ground_mesh();
+    Texture_Info ground_texture_info;
+    load_ground_texture(&ground_texture_info);
+    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
+    device_context->PSSetShaderResources(0, 1, &ground_texture_info.shader_resource_view);
+    device_context->PSSetSamplers(0, 1, &ground_texture_info.sampler_state);
+    device_context->RSSetState(ccw_cull);
+    device_context->DrawIndexed(6, 0, 0);
+
+#if DEBUG
+    event_grouper->EndEvent();
+#endif
+
+#if 0
+
 #if DEBUG
     event_grouper->BeginEvent(L"Render opaque objects");
 #endif
-
-    device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
-
-    int32 k = 0;
 
     for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
@@ -834,10 +973,8 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
-            // device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(36, 0, 0);
-            // device_context->RSSetState(cw_cull);
-            // device_context->DrawIndexed(36, 0, 0);
+
             ++k;
             #if DEBUG
             event_grouper->EndEvent();
@@ -853,10 +990,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
             device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
-            //device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(360, 0, 0);
-            // device_context->RSSetState(cw_cull);
-            // device_context->DrawIndexed(360, 0, 0);
             ++k;
             #if DEBUG
             event_grouper->EndEvent();
@@ -867,6 +1001,7 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     event_grouper->EndEvent();
 #endif
 
+#endif
 
     swap_chain->Present(0, 0);
 }
@@ -969,6 +1104,7 @@ int WINAPI WinMain(HINSTANCE instance,
 {
     HWND window = window_init(instance, show_cmd, WIDTH, HEIGHT, true);
     d3d11_init(instance, window);
+    init_direct_input(instance, window);
 
     srand((unsigned int)time(0));
 
@@ -1034,6 +1170,7 @@ int WINAPI WinMain(HINSTANCE instance,
             start_timer();
         }
         frame_time = get_frame_time();
+        detect_input(frame_time, window);
         update_and_render(&object_lists, &sphere, frame_time);
     }
     
