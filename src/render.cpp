@@ -5,7 +5,6 @@
 #pragma comment (lib, "dxguid")
 #pragma comment (lib, "dxgi")
 
-
 #include <stdint.h>
 #include <windows.h>
 #include <d3d11_1.h>
@@ -474,11 +473,9 @@ void detect_input(real64 time, HWND window)
     return;
 }
 
+
 void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 {
-    device_context->VSSetShader(vertex_shader, 0, 0);
-    device_context->PSSetShader(pixel_shader, 0, 0);
-
     int32 num_objects = object_lists->opaque_size + object_lists->transparent_size;
     assert(num_objects > 0 && num_objects <= 10);
 
@@ -556,21 +553,20 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 #endif
 
     object_lists->opaque_objects[0].world = XMMatrixIdentity();
-    scaling = XMMatrixScaling(500.0f, 10.0f, 500.0f);
+    scaling = XMMatrixScaling(75.0f, 10.0f, 75.0f);
     translation = XMMatrixTranslation(0.0f, 10.0f, 0.0f);
     object_lists->opaque_objects[0].world = scaling*translation;
 
     object_lists->opaque_objects[1].world = XMMatrixIdentity();
-    scaling = XMMatrixScaling(5.0f, 5.0f, 5.0f);
+    scaling = XMMatrixScaling(3.0f, 3.0f, 3.0f);
     translation = XMMatrixTranslation(XMVectorGetX(cam_position), XMVectorGetY(cam_position), XMVectorGetZ(cam_position));
     object_lists->opaque_objects[1].world = scaling*translation;
 
-#if 0
     for(int32 i = 2; i < object_lists->opaque_size; ++i)
     {
         object_lists->opaque_objects[i].world = XMMatrixIdentity();
         real32 x_translate = object_lists->opaque_objects[i].x_coord;
-        translation = XMMatrixTranslation(x_translate, 0.0f, 4.0f);
+        translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
         rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
         object_lists->opaque_objects[i].world = translation*rotation;
     }
@@ -579,12 +575,13 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     {
         object_lists->transparent_objects[i].world = XMMatrixIdentity();
         real32 x_translate = object_lists->transparent_objects[i].x_coord;
-        translation = XMMatrixTranslation(x_translate, 0.0f, 4.0f);
+        translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
         rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
         object_lists->transparent_objects[i].world = translation*rotation;
     }
-#endif
 
+    device_context->VSSetShader(vertex_shader, 0, 0);
+    device_context->PSSetShader(pixel_shader, 0, 0);
     device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
 
 #if DEBUG
@@ -645,54 +642,61 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
 
     device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
-    int32 k = 0;
-
-#if DEBUG
-    event_grouper->BeginEvent(L"Render ground");
-#endif
-
-    load_ground_mesh();
-    Texture_Info ground_texture_info = {};
-    load_ground_texture(&ground_texture_info);
-    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-    device_context->PSSetShaderResources(0, 1, &ground_texture_info.shader_resource_view);
-    device_context->PSSetSamplers(0, 1, &ground_texture_info.sampler_state);
-    device_context->RSSetState(ccw_cull);
-    device_context->DrawIndexed(6, 0, 0);
-
-    ++k;
-
-    load_sphere_mesh(sphere);
-    Texture_Info skymap_texture = {};
-    load_sky_texture(&skymap_texture);
-    offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
-    device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-    device_context->PSSetShaderResources(0, 1, &skymap_texture.shader_resource_view);
-    device_context->PSSetSamplers(0, 1, &skymap_texture.sampler_state);
-    device_context->VSSetShader(skymap_vs, 0, 0);
-    device_context->PSSetShader(skymap_ps, 0, 0);
-    device_context->OMSetDepthStencilState(ds_less_equal, 0);
-    device_context->RSSetState(cull_none);
-    device_context->DrawIndexed(360, 0, 0);
-
-    // Reset state
-    device_context->VSSetShader(vertex_shader, 0, 0);
-    device_context->PSSetShader(pixel_shader, 0, 0);
-    device_context->OMSetDepthStencilState(0, 0);
-
-
-#if DEBUG
-    event_grouper->EndEvent();
-#endif
-
-#if 0
 
 #if DEBUG
     event_grouper->BeginEvent(L"Render opaque objects");
 #endif
+    
+    int32 k = 0;
 
     for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
+        if(object_lists->opaque_objects[i].shape_type == ground_mesh)
+        {
+            #if DEBUG
+                event_grouper->BeginEvent(L"Render ground");
+            #endif
+                load_ground_mesh();
+                offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
+                device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
+                device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
+                device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+                device_context->RSSetState(ccw_cull);
+                device_context->DrawIndexed(6, 0, 0);
+                ++k;
+            #if DEBUG
+                event_grouper->EndEvent();
+            #endif
+        }
+
+        if(object_lists->opaque_objects[i].shape_type == sky_mesh)
+        {
+            #if DEBUG
+                event_grouper->BeginEvent(L"Render sky");
+            #endif
+                load_cube_mesh();
+                Texture_Info skymap_texture = {};
+                load_sky_texture(&skymap_texture);
+                offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
+                device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
+                device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
+                device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+                device_context->VSSetShader(skymap_vs, 0, 0);
+                device_context->PSSetShader(skymap_ps, 0, 0);
+                device_context->OMSetDepthStencilState(ds_less_equal, 0);
+                device_context->RSSetState(cull_none);
+                device_context->DrawIndexed(36, 0, 0);
+                ++k;
+
+                // Reset state
+                device_context->VSSetShader(vertex_shader, 0, 0);
+                device_context->PSSetShader(pixel_shader, 0, 0);
+                device_context->OMSetDepthStencilState(0, 0); 
+            #if DEBUG
+                event_grouper->EndEvent();
+            #endif
+        }
+
         if(object_lists->opaque_objects[i].shape_type == cube_mesh)
         {
             load_cube_mesh();
@@ -768,8 +772,6 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     }
 #if DEBUG
     event_grouper->EndEvent();
-#endif
-
 #endif
 
     swap_chain->Present(0, 0);
@@ -876,7 +878,7 @@ int WINAPI WinMain(HINSTANCE instance,
     init_direct_input(instance, window);
 
     srand((unsigned int)time(0));
-
+#if 0
     int32 num_objects = (rand() % 10) + 1;
     if(num_objects < 3)
     {
@@ -890,16 +892,17 @@ int WINAPI WinMain(HINSTANCE instance,
 
     int32 num_transparent_sphere = (rand() % num_transparent) + 1;
     int32 num_transparent_cube = num_transparent - num_transparent_sphere;
+#endif
 
-#if 0
+
     int32 num_objects = 8;
     int32 num_transparent = 4;
     int32 num_opaque = 4;
-    int32 num_opaque_sphere = 2;
-    int32 num_opaque_cube = 2;
+    int32 num_opaque_sphere = 1;
+    int32 num_opaque_cube = 1;
     int32 num_transparent_sphere = 2;
     int32 num_transparent_cube = 2;
-#endif
+
 
     Sphere sphere = {};
     build_smooth_sphere(&sphere);
@@ -919,6 +922,8 @@ int WINAPI WinMain(HINSTANCE instance,
     init_shape(object_lists.transparent_objects, num_transparent_cube, num_transparent_sphere);
     init_coords(object_lists.opaque_objects, num_opaque, 1);
     init_coords(object_lists.transparent_objects, num_transparent, 0);
+    object_lists.opaque_objects[0].shape_type = ground_mesh;
+    object_lists.opaque_objects[1].shape_type = sky_mesh;
 
     scene_init();
 
@@ -926,6 +931,11 @@ int WINAPI WinMain(HINSTANCE instance,
     load_textures(texture_info);
     attach_textures(object_lists.opaque_objects, object_lists.opaque_size, texture_info);
     attach_textures(object_lists.transparent_objects, object_lists.transparent_size, texture_info);
+
+    object_lists.opaque_objects[0].shape_type = ground_mesh;
+    object_lists.opaque_objects[1].shape_type = sky_mesh; 
+    load_ground_texture(&object_lists.opaque_objects[0].texture_info);
+    load_sky_texture(&object_lists.opaque_objects[1].texture_info); 
 
     running = true;
     while(running)

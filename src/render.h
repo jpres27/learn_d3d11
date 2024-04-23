@@ -20,7 +20,9 @@ typedef real32 RGBA[4];
 enum Shape_Type
 {
     cube_mesh,
-    sphere_mesh
+    sphere_mesh,
+    ground_mesh,
+    sky_mesh
 };
 
 struct Vertex
