@@ -649,6 +649,10 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     
     int32 k = 0;
 
+    // TODO: Debug gyrating geometry, might be an offsets issue. It must be something to do with the transforms,
+    // because what else would be causing geometry to shift its position on what appear to be a per frame basis?
+    // It might be time to see if there's a better way of managing this stuff than what I am currently doing.
+
     for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
         if(object_lists->opaque_objects[i].shape_type == ground_mesh)
