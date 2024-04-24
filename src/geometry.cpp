@@ -1,8 +1,9 @@
 #include "geometry.h"
 real32 PI = 3.14159265359;
 
-internal void build_smooth_sphere(Sphere *sphere)
+Sphere build_smooth_sphere()
 {
+    Sphere sphere = {};
     real32 x, y, z, xy;
     real32 nx, ny, nz, length_inv = 1.0f / radius;
     real32 s, t;
@@ -32,8 +33,8 @@ internal void build_smooth_sphere(Sphere *sphere)
             s = (real32)j / sector_count;
             t = (real32)i / stack_count;
 
-            assert(counter < array_count(sphere->vertices));
-            sphere->vertices[counter] = Vertex(x, y, z, nx, ny, nz, s, t);
+            assert(counter < array_count(sphere.vertices));
+            sphere.vertices[counter] = Vertex(x, y, z, nx, ny, nz, s, t);
             ++counter;
         }
     }
@@ -48,25 +49,26 @@ internal void build_smooth_sphere(Sphere *sphere)
         {
             if (i != 0) // two triangles per sector excluding first and last stacks
             {
-                assert(counter < array_count(sphere->indices));
-                sphere->indices[counter] = k1;
+                assert(counter < array_count(sphere.indices));
+                sphere.indices[counter] = k1;
                 ++counter;
-                sphere->indices[counter] = k2;
+                sphere.indices[counter] = k2;
                 ++counter;
-                sphere->indices[counter] = k1 + 1;
+                sphere.indices[counter] = k1 + 1;
                 ++counter;
             }
 
             if(i != stack_count-1)
             {
-                assert(counter < array_count(sphere->indices));
-                sphere->indices[counter] = k1 + 1;
+                assert(counter < array_count(sphere.indices));
+                sphere.indices[counter] = k1 + 1;
                 ++counter;
-                sphere->indices[counter] = k2;
+                sphere.indices[counter] = k2;
                 ++counter;
-                sphere->indices[counter] = k2 + 1;
+                sphere.indices[counter] = k2 + 1;
                 ++counter;
             }
         }
     }
+    return(sphere);
 }

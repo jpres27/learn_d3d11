@@ -19,10 +19,10 @@ typedef real32 RGBA[4];
 
 enum Shape_Type
 {
-    cube_mesh,
-    sphere_mesh,
-    ground_mesh,
-    sky_mesh
+    CUBE,
+    SPHERE,
+    PLANE,
+    SKYBOX
 };
 
 struct Vertex
@@ -50,25 +50,27 @@ struct Texture_Info
     ID3D11Texture2D *texture;
     ID3D11ShaderResourceView *shader_resource_view;
     ID3D11SamplerState *sampler_state;
+    int texture_tag;
 };
 
 struct Shape
 {
     Shape_Type shape_type;
-    DirectX::XMMATRIX world;
-    real32 dist_from_cam;
-    Texture_Info texture_info;
     real32 x_coord;
-    real32 y_coord;
+    real32 y_coord; 
+    bool32 transparent;
+    Texture_Info texture_info;
 };
 
-struct Object_Lists
+struct Render_Object
 {
-    Shape *opaque_objects;
-    int32 opaque_size;
-    Shape *transparent_objects;
-    int32 transparent_size;
-    int32 num_objects;
+    Shape_Type mesh;
+    DirectX::XMMATRIX world;
+    real32 dist_from_cam;
+    real32 x_coord;
+    real32 y_coord;
+    Texture_Info texture_info;
+    UINT cbuffer_offset;
 };
 
 // Constant buffers consist of shader constants which are 16 bytes (4*32-buit components)

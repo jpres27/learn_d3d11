@@ -24,14 +24,14 @@ int string_length(char *string)
     return(count);
 }
 
-void swap_shape(Shape *x, Shape *y)
+void swap_shape(Render_Object *x, Render_Object *y)
 {
-    Shape temp = *x;
+    Render_Object temp = *x;
     *x = *y;
     *y = temp;
 }
 
-void sort_transparent_dist(Shape *shapes, int size)
+void sort_transparent_dist(Render_Object *shapes, int size)
 {
     int max;
 
@@ -49,7 +49,7 @@ void sort_transparent_dist(Shape *shapes, int size)
     }
 }
 
-void sort_opaque_dist(Shape *shapes, int size)
+void sort_opaque_dist(Render_Object *shapes, int size)
 {
     int min;
 

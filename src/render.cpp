@@ -97,8 +97,6 @@ real64 rotation_state = 0.01f;
 
 Light light = {};
 
-// TODO: Setup a way to make rendering calls outside of the object lists for skybox and ground ... 
-
 // TODO: Make shader loading not ad hoc, once it makes sense to do so
 #include "d3d11_vshader.h"
 #include "d3d11_pshader.h"
@@ -186,54 +184,48 @@ internal void set_debug_name(ID3D11DeviceChild *child, char *name)
     }
 }
 
-void init_shape(Shape *shapes, int num_cube, int num_sphere)
+void init_random_objects(Shape *shapes, int size, int num_cube, int num_sphere)
 {
+    // Init meshes
     int32 num_objects = num_cube + num_sphere;
 
     for(int i = 0; i < num_cube; ++i)
     {
-        shapes[i].shape_type = cube_mesh;
+        shapes[i].shape_type = CUBE;
     }
 
     for(int i = num_cube; i < num_objects; ++i)
     {
-        shapes[i].shape_type = sphere_mesh;
+        shapes[i].shape_type = SPHERE;
     }
-}
 
-void init_coords(Shape *shapes, int32 size, int32 positive)
-{
+    // Init coords
     for(int i = 0; i < size; ++i)
     {
-        if(positive == 1)
+        if(i%2 == 0)
         {
             shapes[i].x_coord = ((real32)(i)+1.1f) * 3;
             shapes[i].y_coord = 0.0f;
 
         }
-        else if(positive == 0)
+        else
         {
             shapes[i].x_coord = ((real32)(i)+1.1f) * -3;
             shapes[i].y_coord = 0.0f;
         }
     }
-}
 
-void attach_textures(Shape *shapes, int32 size, Texture_Info *texture_info)
-{
-    int k = 0;
+    // Init transparency
     for(int i = 0; i < size; ++i)
     {
-        if(k >= 10)
+        if(i%2 == 0)
         {
-            k = 0;
+            shapes[i].transparent = false;
         }
-
-        shapes[i].texture_info.sampler_state = texture_info[k].sampler_state;
-        shapes[i].texture_info.shader_resource_view = texture_info[k].shader_resource_view;
-        shapes[i].texture_info.texture = texture_info[k].texture;
-
-        ++k;
+        else
+        {
+            shapes[i].transparent = true;
+        }
     }
 }
 
@@ -474,22 +466,60 @@ void detect_input(real64 time, HWND window)
 }
 
 
-void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
+void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *texture_list, real64 time)
 {
-    int32 num_objects = object_lists->opaque_size + object_lists->transparent_size;
-    assert(num_objects > 0 && num_objects <= 10);
 
+    int num_opaque = 0;
+    int num_transparent = 0;
+    for(int i = 0; i < otr_size; ++i)
+    {
+        if(objects_to_render[i].transparent)
+        {
+            num_transparent++;
+        }
+        else
+        {
+            num_opaque++;
+        }
+    }
 
-    light.dir = XMFLOAT3(0.0f, 1.0f, 0.0f);
-    light.ambient = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
-    light.diffuse = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    Render_Object *opaques;
+    opaques = (Render_Object *)VirtualAlloc(0, num_opaque*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    Render_Object *transparents;
+    transparents = (Render_Object *)VirtualAlloc(0, num_transparent*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+
+    // TODO: Copy over what needs to be copied and then compute transforms, then upload to cbuffer and compute offsets
+    // and store offsets within each render_object. Then sort for rendering. Then render.
+
+    for(int i = 0; i < num_opaque; ++i)
+    {
+        if(!objects_to_render->transparent)
+        {
+            opaques[i].x_coord = objects_to_render[i].x_coord;
+            opaques[i].y_coord = objects_to_render[i].y_coord;
+            opaques[i].mesh = objects_to_render[i].shape_type;
+            opaques[i].texture_info = objects_to_render[i].texture_info;
+            int test = 0;
+        }
+    }
+
+    for(int i = 0; i < num_transparent; ++i)
+    {
+        if(objects_to_render->transparent)
+        {
+            transparents[i].x_coord = objects_to_render[i].x_coord;
+            transparents[i].y_coord = objects_to_render[i].y_coord;
+            transparents[i].mesh = objects_to_render[i].shape_type;
+            transparents[i].texture_info = objects_to_render[i].texture_info;
+            int test = 0;
+        }
+    }
 
     rotation_state += 1.0f * time;
     if (rotation_state > 6.28f)
     {
         rotation_state = 0.0f;
     }
-
 
     XMMATRIX translation;
     XMMATRIX scaling;
@@ -501,83 +531,92 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
 #if 0
     for(int32 i = 0; i < object_lists->opaque_size; ++i)
     {
-        object_lists->opaque_objects[i].world = XMMatrixIdentity();
+        opaques[i].world = XMMatrixIdentity();
         real32 x_translate = 0;
-        if(object_lists->opaque_objects[i].shape_type == cube_mesh) 
+        if(opaques[i].shape_type == cube_mesh) 
         {
-            x_translate = object_lists->opaque_objects[i].x_coord;
+            x_translate = opaques[i].x_coord;
             translation = XMMatrixTranslation(x_translate, 0.0f, 4.0f);
             rotation_axis_y = XMVectorSet(0.0f, roty, 0.0f, 0.0f);
             rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
             roty = roty + 1.0f;
-            object_lists->opaque_objects[i].world = translation*rotation;
+            opaques[i].world = translation*rotation;
         }
-        else if (object_lists->opaque_objects[i].shape_type == sphere_mesh)
+        else if (opaques[i].shape_type == sphere_mesh)
         {
-            x_translate = object_lists->opaque_objects[i].x_coord;
+            x_translate = opaques[i].x_coord;
             translation = XMMatrixTranslation(x_translate, 0.0f, 0.0f);
             rotation = XMMatrixRotationAxis(rotation_axis_y, -rotation_state);
             roty = roty + 1.0f;
             scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
-            object_lists->opaque_objects[i].world = rotation*scaling*translation;
+            opaques[i].world = rotation*scaling*translation;
         }
     }
 
-    for(int32 i = 0; i < object_lists->transparent_size; ++i)
+    for(int32 i = 0; i < num_transparent; ++i)
     {
-        object_lists->transparent_objects[i].world = XMMatrixIdentity();
+        transparents[i].world = XMMatrixIdentity();
         real32 x_translate = 0;
         real32 y_translate = 0;
-        if(object_lists->transparent_objects[i].shape_type == cube_mesh) 
+        if(transparents[i].shape_type == cube_mesh) 
         {
 
-            x_translate = object_lists->transparent_objects[i].x_coord;
+            x_translate = transparents[i].x_coord;
             translation = XMMatrixTranslation(x_translate, y_translate, 4.0f);
             rotation_axis_y = XMVectorSet(0.0f, roty, 0.0f, 0.0f);
             rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
             roty = roty + 1.0f;
-            object_lists->transparent_objects[i].world = translation*rotation;
+            transparents[i].world = translation*rotation;
         }
-        else if (object_lists->transparent_objects[i].shape_type == sphere_mesh)
+        else if (transparents[i].shape_type == sphere_mesh)
         {
 
-            x_translate = object_lists->transparent_objects[i].x_coord;
+            x_translate = transparents[i].x_coord;
             translation = XMMatrixTranslation(x_translate, y_translate, 0.0f);
             rotation_axis_y = XMVectorSet(0.0f, roty, 0.0f, 0.0f);  
             rotation = XMMatrixRotationAxis(rotation_axis_y, -rotation_state);
             roty = roty + 1.0f;
             scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
-            object_lists->transparent_objects[i].world = rotation*scaling*translation;
+            transparents[i].world = rotation*scaling*translation;
         }
     }
 #endif
 
-    object_lists->opaque_objects[0].world = XMMatrixIdentity();
-    scaling = XMMatrixScaling(75.0f, 10.0f, 75.0f);
-    translation = XMMatrixTranslation(0.0f, 10.0f, 0.0f);
-    object_lists->opaque_objects[0].world = scaling*translation;
-
-    object_lists->opaque_objects[1].world = XMMatrixIdentity();
-    scaling = XMMatrixScaling(3.0f, 3.0f, 3.0f);
-    translation = XMMatrixTranslation(XMVectorGetX(cam_position), XMVectorGetY(cam_position), XMVectorGetZ(cam_position));
-    object_lists->opaque_objects[1].world = scaling*translation;
-
-    for(int32 i = 2; i < object_lists->opaque_size; ++i)
+    for(int32 i = 0; i < num_opaque; ++i)
     {
-        object_lists->opaque_objects[i].world = XMMatrixIdentity();
-        real32 x_translate = object_lists->opaque_objects[i].x_coord;
-        translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
-        rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
-        object_lists->opaque_objects[i].world = translation*rotation;
+        if(opaques[i].mesh == PLANE)
+        {
+            opaques[i].world = XMMatrixIdentity();
+            scaling = XMMatrixScaling(75.0f, 10.0f, 75.0f);
+            translation = XMMatrixTranslation(0.0f, 10.0f, 0.0f);
+            opaques[i].world = scaling*translation;
+        }
+
+        else if(opaques[i].mesh == SKYBOX)
+        {
+            opaques[i].world = XMMatrixIdentity();
+            scaling = XMMatrixScaling(3.0f, 3.0f, 3.0f);
+            translation = XMMatrixTranslation(XMVectorGetX(cam_position), XMVectorGetY(cam_position), XMVectorGetZ(cam_position));
+            opaques[i].world = scaling*translation;
+        }
+
+        else
+        {
+            opaques[i].world = XMMatrixIdentity();
+            real32 x_translate = opaques[i].x_coord;
+            translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
+            rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+            opaques[i].world = translation*rotation;
+        }
     }
     
-    for(int32 i = 0; i < object_lists->transparent_size; ++i)
+    for(int32 i = 0; i < num_transparent; ++i)
     {
-        object_lists->transparent_objects[i].world = XMMatrixIdentity();
-        real32 x_translate = object_lists->transparent_objects[i].x_coord;
+        transparents[i].world = XMMatrixIdentity();
+        real32 x_translate = transparents[i].x_coord;
         translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
         rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
-        object_lists->transparent_objects[i].world = translation*rotation;
+        transparents[i].world = translation*rotation;
     }
 
     device_context->VSSetShader(vertex_shader, 0, 0);
@@ -594,6 +633,10 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     event_grouper->EndEvent();
 #endif
 
+    light.dir = XMFLOAT3(0.0f, 1.0f, 0.0f);
+    light.ambient = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+    light.diffuse = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+
 #if DEBUG
     event_grouper->BeginEvent(L"Setup cb_per_frame");
 #endif
@@ -608,89 +651,81 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     event_grouper->EndEvent();
 #endif
 
-    for(int i = 0; i < object_lists->opaque_size; ++i)
-    {
-        object_lists->opaque_objects[i].dist_from_cam = find_dist_from_cam(object_lists->opaque_objects[i].world);
-    }
-
-    sort_opaque_dist(object_lists->opaque_objects, object_lists->opaque_size);
-
     CB_Per_Object cb_per_object = {};
     XMMATRIX *cbpo_index = (XMMATRIX *)&cb_per_object.cube1;
 
-    for(int32 i = 0; i < object_lists->opaque_size; ++i)
+    int k = 0;
+    for(int32 i = 0; i < num_opaque; ++i)
     {
-            *cbpo_index = XMMatrixTranspose(object_lists->opaque_objects[i].world);
+            *cbpo_index = XMMatrixTranspose(opaques[i].world);
             cbpo_index += 4;
+            opaques[i].cbuffer_offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
+            ++k;
     }
 
-    for(int i = 0; i < object_lists->transparent_size; ++i)
+    for(int32 i = 0; i < num_transparent; ++i)
     {
-        object_lists->transparent_objects[i].dist_from_cam = find_dist_from_cam(object_lists->transparent_objects[i].world);
-    }
-
-    sort_transparent_dist(object_lists->transparent_objects, object_lists->transparent_size);
-
-    for(int32 i = 0; i < object_lists->transparent_size; ++i)
-    {
-            *cbpo_index = XMMatrixTranspose(object_lists->transparent_objects[i].world);
+            *cbpo_index = XMMatrixTranspose(transparents[i].world);
             cbpo_index += 4;
+            transparents[i].cbuffer_offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
     }
+
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
 
-    UINT offset = 0;
-    UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
+    for(int i = 0; i < num_opaque; ++i)
+    {
+        opaques[i].dist_from_cam = find_dist_from_cam(opaques[i].world);
+    }
+    sort_opaque_dist(opaques, num_opaque);
+
+    for(int i = 0; i < num_transparent; ++i)
+    {
+        transparents[i].dist_from_cam = find_dist_from_cam(transparents[i].world);
+    }
+    sort_transparent_dist(transparents, num_transparent);
 
     device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
 
 #if DEBUG
     event_grouper->BeginEvent(L"Render opaque objects");
 #endif
-    
-    int32 k = 0;
 
-    // TODO: Debug gyrating geometry, might be an offsets issue. It must be something to do with the transforms,
-    // because what else would be causing geometry to shift its position on what appear to be a per frame basis?
-    // It might be time to see if there's a better way of managing this stuff than what I am currently doing.
+    Sphere sphere = build_smooth_sphere();
+    UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
 
-    for(int32 i = 0; i < object_lists->opaque_size; ++i)
+    for(int32 i = 0; i < num_opaque; ++i)
     {
-        if(object_lists->opaque_objects[i].shape_type == ground_mesh)
+        int test = 0;
+        if(opaques[i].mesh == PLANE)
         {
             #if DEBUG
                 event_grouper->BeginEvent(L"Render ground");
             #endif
                 load_ground_mesh();
-                offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
-                device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-                device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
-                device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+                device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &opaques[i].cbuffer_offset, &size);
+                device_context->PSSetShaderResources(0, 1, &opaques[i].texture_info.shader_resource_view);
+                device_context->PSSetSamplers(0, 1, &opaques[i].texture_info.sampler_state);
                 device_context->RSSetState(ccw_cull);
                 device_context->DrawIndexed(6, 0, 0);
-                ++k;
             #if DEBUG
                 event_grouper->EndEvent();
             #endif
         }
 
-        if(object_lists->opaque_objects[i].shape_type == sky_mesh)
+        if(opaques[i].mesh == SKYBOX)
         {
             #if DEBUG
                 event_grouper->BeginEvent(L"Render sky");
             #endif
                 load_cube_mesh();
-                Texture_Info skymap_texture = {};
-                load_sky_texture(&skymap_texture);
-                offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
-                device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-                device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
-                device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+                device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &opaques[i].cbuffer_offset, &size);
+                device_context->PSSetShaderResources(0, 1, &opaques[i].texture_info.shader_resource_view);
+                device_context->PSSetSamplers(0, 1, &opaques[i].texture_info.sampler_state);
                 device_context->VSSetShader(skymap_vs, 0, 0);
                 device_context->PSSetShader(skymap_ps, 0, 0);
                 device_context->OMSetDepthStencilState(ds_less_equal, 0);
                 device_context->RSSetState(cull_none);
                 device_context->DrawIndexed(36, 0, 0);
-                ++k;
 
                 // Reset state
                 device_context->VSSetShader(vertex_shader, 0, 0);
@@ -701,27 +736,23 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             #endif
         }
 
-        if(object_lists->opaque_objects[i].shape_type == cube_mesh)
+        if(opaques[i].mesh == CUBE)
         {
             load_cube_mesh();
-            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
-            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-            device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
-            device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &opaques[i].cbuffer_offset, &size);
+            device_context->PSSetShaderResources(0, 1, &opaques[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &opaques[i].texture_info.sampler_state);
             device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(36, 0, 0);
-            ++k;
         }
-        else if(object_lists->opaque_objects[i].shape_type == sphere_mesh)
+        else if(opaques[i].mesh == SPHERE)
         {
-            load_sphere_mesh(sphere);
-            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
-            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-            device_context->PSSetShaderResources(0, 1, &object_lists->opaque_objects[i].texture_info.shader_resource_view);
-            device_context->PSSetSamplers(0, 1, &object_lists->opaque_objects[i].texture_info.sampler_state);
+            load_sphere_mesh(&sphere);
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &opaques[i].cbuffer_offset, &size);
+            device_context->PSSetShaderResources(0, 1, &opaques[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &opaques[i].texture_info.sampler_state);
             device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(360, 0, 0);
-            ++k;
         }
     }
 #if DEBUG
@@ -734,19 +765,17 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
     real32 blend_factor[] = {0.5f, 0.5f, 0.5f, 0.7f};
     device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
 
-    for(int32 i = 0; i < object_lists->transparent_size; ++i)
+    for(int32 i = 0; i < num_transparent; ++i)
     {
-        assert(k < object_lists->num_objects + 1);
-        if(object_lists->transparent_objects[i].shape_type == cube_mesh)
+        if(transparents[i].mesh == CUBE)
         {
             #if DEBUG
             event_grouper->BeginEvent(L"Render transparent cube");
             #endif
             load_cube_mesh();
-            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
-            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-            device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
-            device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &transparents[i].cbuffer_offset, &size);
+            device_context->PSSetShaderResources(0, 1, &transparents[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &transparents[i].texture_info.sampler_state);
             device_context->RSSetState(ccw_cull);
             device_context->DrawIndexed(36, 0, 0);
 
@@ -755,16 +784,15 @@ void update_and_render(Object_Lists *object_lists, Sphere *sphere, real64 time)
             event_grouper->EndEvent();
             #endif
         }
-        else if(object_lists->transparent_objects[i].shape_type == sphere_mesh)
+        else if(transparents[i].mesh == SPHERE)
         {
             #if DEBUG
             event_grouper->BeginEvent(L"Render transparent sphere");
             #endif
-            load_sphere_mesh(sphere);
-            offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
-            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &offset, &size);
-            device_context->PSSetShaderResources(0, 1, &object_lists->transparent_objects[i].texture_info.shader_resource_view);
-            device_context->PSSetSamplers(0, 1, &object_lists->transparent_objects[i].texture_info.sampler_state);
+            load_sphere_mesh(&sphere);
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &transparents[i].cbuffer_offset, &size);
+            device_context->PSSetShaderResources(0, 1, &transparents[i].texture_info.shader_resource_view);
+            device_context->PSSetSamplers(0, 1, &transparents[i].texture_info.sampler_state);
             device_context->RSSetState(ccw_cull); 
             device_context->DrawIndexed(360, 0, 0);
 
@@ -880,6 +908,7 @@ int WINAPI WinMain(HINSTANCE instance,
     HWND window = window_init(instance, show_cmd, WIDTH, HEIGHT, true);
     d3d11_init(instance, window);
     init_direct_input(instance, window);
+    scene_init();
 
     srand((unsigned int)time(0));
 #if 0
@@ -899,47 +928,43 @@ int WINAPI WinMain(HINSTANCE instance,
 #endif
 
 
-    int32 num_objects = 8;
-    int32 num_transparent = 4;
-    int32 num_opaque = 4;
-    int32 num_opaque_sphere = 1;
-    int32 num_opaque_cube = 1;
-    int32 num_transparent_sphere = 2;
-    int32 num_transparent_cube = 2;
+    const int32 num_shapes = 8;
+    int32 num_cube = 4;
+    int32 num_sphere = 4;
 
+    Shape random_objects[num_shapes];
+    init_random_objects(random_objects, num_shapes, num_cube, num_sphere);
 
-    Sphere sphere = {};
-    build_smooth_sphere(&sphere);
-
-    Shape *opaques;
-    opaques = (Shape *)VirtualAlloc(0, num_opaque*sizeof(Shape), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-    Shape *transparents;
-    transparents = (Shape *)VirtualAlloc(0, num_transparent*sizeof(Shape), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-    Object_Lists object_lists = {};
-    object_lists.opaque_objects = opaques;
-    object_lists.opaque_size = num_opaque;
-    object_lists.transparent_objects = transparents;
-    object_lists.transparent_size = num_transparent;
-    object_lists.num_objects = num_objects;
-
-    init_shape(object_lists.opaque_objects, num_opaque_cube, num_opaque_sphere);
-    init_shape(object_lists.transparent_objects, num_transparent_cube, num_transparent_sphere);
-    init_coords(object_lists.opaque_objects, num_opaque, 1);
-    init_coords(object_lists.transparent_objects, num_transparent, 0);
-    object_lists.opaque_objects[0].shape_type = ground_mesh;
-    object_lists.opaque_objects[1].shape_type = sky_mesh;
-
-    scene_init();
-
-    Texture_Info texture_info[10];
+    Texture_Info texture_info[12];
     load_textures(texture_info);
-    attach_textures(object_lists.opaque_objects, object_lists.opaque_size, texture_info);
-    attach_textures(object_lists.transparent_objects, object_lists.transparent_size, texture_info);
+    load_sky_texture(&texture_info[10]);
+    load_ground_texture(&texture_info[11]);
 
-    object_lists.opaque_objects[0].shape_type = ground_mesh;
-    object_lists.opaque_objects[1].shape_type = sky_mesh; 
-    load_ground_texture(&object_lists.opaque_objects[0].texture_info);
-    load_sky_texture(&object_lists.opaque_objects[1].texture_info); 
+    for(int i = 0; i < num_shapes; ++i)
+    {
+        random_objects[i].texture_info = texture_info[i];
+    }
+
+    Shape skybox = {};
+    skybox.shape_type = SKYBOX;
+    skybox.texture_info = texture_info[10];
+    skybox.transparent = false;
+
+    Shape ground = {};
+    ground.shape_type = PLANE;
+    ground.texture_info = texture_info[11];
+    ground.transparent = false;
+
+    const int num_objects = 10;
+    
+    Shape game_objects[num_objects];
+    game_objects[0] = skybox;
+    game_objects[1] = ground;
+
+    for(int i = 2; i < num_objects; ++i)
+    {
+        game_objects[i] = random_objects[i];
+    }
 
     running = true;
     while(running)
@@ -954,7 +979,7 @@ int WINAPI WinMain(HINSTANCE instance,
         }
         frame_time = get_frame_time();
         detect_input(frame_time, window);
-        update_and_render(&object_lists, &sphere, frame_time);
+        update_and_render(game_objects, num_objects, texture_info, frame_time);
     }
     
     return(0);
