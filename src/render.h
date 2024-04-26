@@ -73,6 +73,11 @@ struct Render_Object
     UINT cbuffer_offset;
 };
 
+struct Frustum_Planes
+{
+    DirectX::XMFLOAT4 plane[6];
+};
+
 // Constant buffers consist of shader constants which are 16 bytes (4*32-buit components)
 // and when using offsets to bind various parts of a CB it must be a multiple of 16
 // constants in the range [0, 4096]

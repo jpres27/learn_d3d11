@@ -105,39 +105,7 @@ Light light = {};
 
 #include "load_mesh.cpp"
 #include "load_texture.cpp"
-
-void start_timer()
-{
-    LARGE_INTEGER frequency_count;
-    QueryPerformanceFrequency(&frequency_count);
-
-    counts_per_second = double(frequency_count.QuadPart);
-
-    QueryPerformanceCounter(&frequency_count);
-    counter_start = frequency_count.QuadPart;
-}
-
-real64 get_time()
-{
-    LARGE_INTEGER current_time;
-    QueryPerformanceCounter(&current_time);
-    return real64(current_time.QuadPart - counter_start)/counts_per_second;
-}
-
-real64 get_frame_time()
-{
-    LARGE_INTEGER current_time;
-    int64 tick_count;
-    QueryPerformanceCounter(&current_time);
-
-    tick_count = current_time.QuadPart - frame_time_old;
-    frame_time_old = current_time.QuadPart;
-
-    if(tick_count < 0)
-        tick_count = 0;
-
-    return real32(tick_count)/counts_per_second;
-}
+#include "timing.cpp"
 
 void init_direct_input(HINSTANCE instance, HWND window)
 {
@@ -161,6 +129,164 @@ void init_direct_input(HINSTANCE instance, HWND window)
 
     hr = di_mouse->SetDataFormat(&c_dfDIMouse);
     hr = di_mouse->SetCooperativeLevel(window, DISCL_EXCLUSIVE | DISCL_NOWINKEY | DISCL_FOREGROUND);
+}
+
+Frustum_Planes get_frustum_planes(XMMATRIX view_projection)
+{
+    // x, y, z, and w represent A, B, C and D in the plane equation
+    // where ABC are the xyz of the planes normal, and D is the plane constant
+    Frustum_Planes frustum;
+
+    XMFLOAT4X4 vp;
+    XMStoreFloat4x4(&vp, view_projection);
+
+    // Left Frustum Plane
+    // Add first column of the matrix to the fourth column
+    frustum.plane[0].x = vp._14 + vp._11; 
+    frustum.plane[0].y = vp._24 + vp._21;
+    frustum.plane[0].z = vp._34 + vp._31;
+    frustum.plane[0].w = vp._44 + vp._41;
+
+    // Right Frustum Plane
+    // Subtract first column of matrix from the fourth column
+    frustum.plane[1].x = vp._14 - vp._11; 
+    frustum.plane[1].y = vp._24 - vp._21;
+    frustum.plane[1].z = vp._34 - vp._31;
+    frustum.plane[1].w = vp._44 - vp._41;
+
+    // Top Frustum Plane
+    // Subtract second column of matrix from the fourth column
+    frustum.plane[2].x = vp._14 - vp._12; 
+    frustum.plane[2].y = vp._24 - vp._22;
+    frustum.plane[2].z = vp._34 - vp._32;
+    frustum.plane[2].w = vp._44 - vp._42;
+
+    // Bottom Frustum Plane
+    // Add second column of the matrix to the fourth column
+    frustum.plane[3].x = vp._14 + vp._12;
+    frustum.plane[3].y = vp._24 + vp._22;
+    frustum.plane[3].z = vp._34 + vp._32;
+    frustum.plane[3].w = vp._44 + vp._42;
+
+    // Near Frustum Plane
+    // We could add the third column to the fourth column to get the near plane,
+    // but we don't have to do this because the third column IS the near plane
+    frustum.plane[4].x = vp._13;
+    frustum.plane[4].y = vp._23;
+    frustum.plane[4].z = vp._33;
+    frustum.plane[4].w = vp._43;
+
+    // Far Frustum Plane
+    // Subtract third column of matrix from the fourth column
+    frustum.plane[5].x = vp._14 - vp._13; 
+    frustum.plane[5].y = vp._24 - vp._23;
+    frustum.plane[5].z = vp._34 - vp._33;
+    frustum.plane[5].w = vp._44 - vp._43;
+
+    // Normalize plane normals (A, B and C (xyz))
+    // Also take note that planes face inward
+    for(int i = 0; i < 6; ++i)
+    {
+        float length = sqrt((frustum.plane[i].x * frustum.plane[i].x) + (frustum.plane[i].y * frustum.plane[i].y) + (frustum.plane[i].z * frustum.plane[i].z));
+        frustum.plane[i].x /= length;
+        frustum.plane[i].y /= length;
+        frustum.plane[i].z /= length;
+        frustum.plane[i].w /= length;
+    }
+
+    return frustum;
+}
+
+bool32 check_point(Frustum_Planes frustum, real32 x, real32 y, real32 z)
+{
+    for(int i = 0; i < 6; ++i) 
+    {
+        if(((frustum.plane[i].x * x) + (frustum.plane[i].y * y) + (frustum.plane[i].z * z) + frustum.plane[i].w) < 0.0f)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool32 check_sphere(Frustum_Planes frustum, real32 x, real32 y, real32 z, real32 r)
+{
+    for(int i = 0; i < 6; ++i)
+    {
+        if(((frustum.plane[i].x * x) + (frustum.plane[i].y * y) + (frustum.plane[i].z * z) + frustum.plane[i].w) < -r)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool32 check_cube(Frustum_Planes frustum, real32 x, real32 y, real32 z, real32 r)
+{
+     for(int i = 0; i < 6; ++i)
+    {
+        if(frustum.plane[i].x * (x - r) +
+           frustum.plane[i].y * (y - r) +
+           frustum.plane[i].z * (z - r) + frustum.plane[i].w >= 0.0f)
+        {
+            continue;
+        }
+
+        if(frustum.plane[i].x * (x + r) +
+           frustum.plane[i].y * (y - r) +
+           frustum.plane[i].z * (z - r) + frustum.plane[i].w >= 0.0f)
+        {
+            continue;
+        }
+
+        if(frustum.plane[i].x * (x - r) +
+           frustum.plane[i].y * (y + r) +
+           frustum.plane[i].z * (z - r) + frustum.plane[i].w >= 0.0f)
+        {
+            continue;
+        }
+
+        if(frustum.plane[i].x * (x + r) +
+           frustum.plane[i].y * (y + r) +
+           frustum.plane[i].z * (z - r) + frustum.plane[i].w >= 0.0f)
+        {
+            continue;
+        }
+
+        if(frustum.plane[i].x * (x - r) +
+           frustum.plane[i].y * (y - r) +
+           frustum.plane[i].z * (z + r) + frustum.plane[i].w >= 0.0f)
+        {
+            continue;
+        }
+
+        if(frustum.plane[i].x * (x + r) +
+           frustum.plane[i].y * (y - r) +
+           frustum.plane[i].z * (z + r) + frustum.plane[i].w >= 0.0f)
+        {
+            continue;
+        }
+
+        if(frustum.plane[i].x * (x - r) +
+           frustum.plane[i].y * (y + r) +
+           frustum.plane[i].z * (z + r) + frustum.plane[i].w >= 0.0f)
+        {
+            continue;
+        }
+
+        if(frustum.plane[i].x * (x + r) +
+           frustum.plane[i].y * (y + r) +
+           frustum.plane[i].z * (z + r) + frustum.plane[i].w >= 0.0f)
+        {
+            continue;
+        }
+
+        return false;
+    }
+
+    return true;
 }
 
 internal real32 find_dist_from_cam(XMMATRIX cube)
