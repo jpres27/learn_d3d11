@@ -78,6 +78,18 @@ struct Frustum_Planes
     DirectX::XMFLOAT4 plane[6];
 };
 
+struct Bounding_Box 
+{
+    DirectX::XMFLOAT3 min_vert;
+    DirectX::XMFLOAT3 max_vert;
+};
+
+struct Bounding_Sphere 
+{
+    DirectX::XMFLOAT3 center;
+    real32 radius;
+};
+
 // Constant buffers consist of shader constants which are 16 bytes (4*32-buit components)
 // and when using offsets to bind various parts of a CB it must be a multiple of 16
 // constants in the range [0, 4096]

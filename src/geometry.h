@@ -2,7 +2,7 @@
 
 real32 stack_count = 6;
 real32 sector_count = 12;
-real32 radius = 1;
+real32 sphere_radius = 1;
 
 struct Sphere
 {

@@ -5,7 +5,7 @@ Sphere build_smooth_sphere()
 {
     Sphere sphere = {};
     real32 x, y, z, xy;
-    real32 nx, ny, nz, length_inv = 1.0f / radius;
+    real32 nx, ny, nz, length_inv = 1.0f / sphere_radius;
     real32 s, t;
 
     real32 sector_step = 2 * PI / sector_count;
@@ -16,8 +16,8 @@ Sphere build_smooth_sphere()
     for (int i = 0; i <= stack_count; ++i)
     {
         stack_angle = PI / 2 - i * stack_step;
-        xy = radius * cosf(stack_angle);
-        z = radius * sinf(stack_angle);
+        xy = sphere_radius * cosf(stack_angle);
+        z = sphere_radius * sinf(stack_angle);
 
         for(int j = 0; j <= sector_count; ++j)
         {

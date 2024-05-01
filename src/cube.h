@@ -1,6 +1,6 @@
 #if !defined(CUBE_H)
 
-    Vertex v[] =
+    Vertex cube_vertices[] =
     {
         // Front Face
         Vertex(-1.0f, -1.0f, -1.0f, 0.0f, 1.0f,-1.0f, -1.0f, -1.0f),
@@ -39,7 +39,7 @@
         Vertex( 1.0f, -1.0f,  1.0f, 1.0f, 1.0f, 1.0f, -1.0f,  1.0f),
     };
     
-        DWORD indices[] = {
+        DWORD cube_indices[] = {
             // Front Face
             0,  1,  2,
             0,  2,  3,

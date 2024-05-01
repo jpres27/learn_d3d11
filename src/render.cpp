@@ -103,6 +103,7 @@ Light light = {};
 #include "skymap_vshader.h"
 #include "skymap_pshader.h"
 
+#include "cube.h"
 #include "load_mesh.cpp"
 #include "load_texture.cpp"
 #include "timing.cpp"
@@ -129,6 +130,20 @@ void init_direct_input(HINSTANCE instance, HWND window)
 
     hr = di_mouse->SetDataFormat(&c_dfDIMouse);
     hr = di_mouse->SetCooperativeLevel(window, DISCL_EXCLUSIVE | DISCL_NOWINKEY | DISCL_FOREGROUND);
+}
+
+inline real32 get_magnitude(XMFLOAT3 *v1)
+{ 
+    XMVECTOR v2 = XMLoadFloat3(v1);
+    return(XMVectorGetX(XMVector3Length(v2))); 
+}
+
+inline void subtract_float3(XMFLOAT3 *f1, XMFLOAT3 *f2, XMFLOAT3 *result)
+{
+    XMVECTOR v1 = XMLoadFloat3(f1);
+    XMVECTOR v2 = XMLoadFloat3(f2);
+    XMVECTOR v_result = XMVectorSubtract(v1, v2);
+    XMStoreFloat3(result, v_result);
 }
 
 Frustum_Planes get_frustum_planes(XMMATRIX view_projection)
@@ -197,6 +212,66 @@ Frustum_Planes get_frustum_planes(XMMATRIX view_projection)
     return frustum;
 }
 
+Bounding_Box calculate_bounding_box(XMFLOAT3 *vertex_positions, int size)
+{
+    XMFLOAT3 min_vertex = XMFLOAT3(FLT_MAX, FLT_MAX, FLT_MAX);
+    XMFLOAT3 max_vertex = XMFLOAT3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+
+    for (int i = 0; i < size; ++i)
+    {
+        //Get the smallest vertex 
+        min_vertex.x = min(min_vertex.x, vertex_positions[i].x);    // Find smallest x value in model
+        min_vertex.y = min(min_vertex.y, vertex_positions[i].y);    // Find smallest y value in model
+        min_vertex.z = min(min_vertex.z, vertex_positions[i].z);    // Find smallest z value in model
+
+        //Get the largest vertex 
+        max_vertex.x = max(max_vertex.x, vertex_positions[i].x);    // Find largest x value in model
+        max_vertex.y = max(max_vertex.y, vertex_positions[i].y);    // Find largest y value in model
+        max_vertex.z = max(max_vertex.z, vertex_positions[i].z);    // Find largest z value in model
+    }
+
+    Bounding_Box bounding_box = {};
+    bounding_box.min_vert = min_vertex;
+    bounding_box.max_vert = max_vertex;
+    return(bounding_box);
+}
+
+Bounding_Sphere calculate_bounding_sphere(Vertex *vertices, int size){
+    XMVECTOR center = XMLoadFloat3(&vertices[0].pos);
+    real32 radius = 0.0001f;
+    XMVECTOR pos, diff;
+    real32 len, alpha, alphaSq;
+
+    for (int i = 0; i < 2; ++i){
+        for (int k = 0; k < size; ++k){
+            pos = XMLoadFloat3(&vertices[k].pos);
+            diff = pos - center;
+            len = XMVectorGetX(XMVector3Length(diff));
+            if (len > radius){
+                alpha = len / radius;
+                alphaSq = alpha * alpha;
+                radius = 0.5f * (alpha + 1 / alpha) * radius;
+                center = 0.5f * ((1 + 1 / alphaSq) * center + (1 - 1 / alphaSq) * pos);
+            }
+        }
+    }
+
+    for (int i = 0; i < size; ++i){
+        pos = XMLoadFloat3(&vertices[i].pos);
+        diff = pos - center;
+        len = XMVectorGetX(XMVector3Length(diff));
+        if (len > radius){
+            radius = (radius + len) / 2.0f;
+            center = center + ((len - radius) / len * diff);
+        }
+    }
+
+    Bounding_Sphere sphere = {};
+    XMStoreFloat3(&sphere.center, center);
+    sphere.radius = radius;
+    return(sphere);
+}
+
 bool32 check_point(Frustum_Planes frustum, real32 x, real32 y, real32 z)
 {
     for(int i = 0; i < 6; ++i) 
@@ -210,11 +285,14 @@ bool32 check_point(Frustum_Planes frustum, real32 x, real32 y, real32 z)
     return true;
 }
 
-bool32 check_sphere(Frustum_Planes frustum, real32 x, real32 y, real32 z, real32 r)
+// Returns true if bounding sphere can be seen
+bool32 check_sphere(Frustum_Planes frustum, Bounding_Sphere sphere)
 {
     for(int i = 0; i < 6; ++i)
     {
-        if(((frustum.plane[i].x * x) + (frustum.plane[i].y * y) + (frustum.plane[i].z * z) + frustum.plane[i].w) < -r)
+        if(((frustum.plane[i].x * sphere.center.x) + 
+            (frustum.plane[i].y * sphere.center.y) + 
+            (frustum.plane[i].z * sphere.center.z) + frustum.plane[i].w) < -(sphere.radius))
         {
             return false;
         }
@@ -614,32 +692,10 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     Render_Object *transparents;
     transparents = (Render_Object *)VirtualAlloc(0, num_transparent*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
-    // TODO: Copy over what needs to be copied and then compute transforms, then upload to cbuffer and compute offsets
-    // and store offsets within each render_object. Then sort for rendering. Then render.
-
-    for(int i = 0; i < num_opaque; ++i)
-    {
-        if(!objects_to_render->transparent)
-        {
-            opaques[i].x_coord = objects_to_render[i].x_coord;
-            opaques[i].y_coord = objects_to_render[i].y_coord;
-            opaques[i].mesh = objects_to_render[i].shape_type;
-            opaques[i].texture_info = objects_to_render[i].texture_info;
-            int test = 0;
-        }
-    }
-
-    for(int i = 0; i < num_transparent; ++i)
-    {
-        if(objects_to_render->transparent)
-        {
-            transparents[i].x_coord = objects_to_render[i].x_coord;
-            transparents[i].y_coord = objects_to_render[i].y_coord;
-            transparents[i].mesh = objects_to_render[i].shape_type;
-            transparents[i].texture_info = objects_to_render[i].texture_info;
-            int test = 0;
-        }
-    }
+    Frustum_Planes frustum = get_frustum_planes(cam_view * cam_projection);
+    Sphere sphere = build_smooth_sphere();
+    Bounding_Sphere sbs = calculate_bounding_sphere(sphere.vertices, array_count(sphere.vertices));
+    Bounding_Sphere cbs = calculate_bounding_sphere(cube_vertices, array_count(cube_vertices));
 
     rotation_state += 1.0f * time;
     if (rotation_state > 6.28f)
@@ -654,95 +710,129 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     XMVECTOR rotation_axis_x = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
     XMMATRIX rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
     real32 roty = 1.0f;
-#if 0
-    for(int32 i = 0; i < object_lists->opaque_size; ++i)
+
+    int num_rendered_opaque = 0;
+    for(int i = 0; i < num_opaque; ++i)
     {
-        opaques[i].world = XMMatrixIdentity();
-        real32 x_translate = 0;
-        if(opaques[i].shape_type == cube_mesh) 
+        if(!objects_to_render->transparent)
         {
-            x_translate = opaques[i].x_coord;
-            translation = XMMatrixTranslation(x_translate, 0.0f, 4.0f);
-            rotation_axis_y = XMVectorSet(0.0f, roty, 0.0f, 0.0f);
-            rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
-            roty = roty + 1.0f;
-            opaques[i].world = translation*rotation;
-        }
-        else if (opaques[i].shape_type == sphere_mesh)
-        {
-            x_translate = opaques[i].x_coord;
-            translation = XMMatrixTranslation(x_translate, 0.0f, 0.0f);
-            rotation = XMMatrixRotationAxis(rotation_axis_y, -rotation_state);
-            roty = roty + 1.0f;
-            scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
-            opaques[i].world = rotation*scaling*translation;
+            if(objects_to_render[i].shape_type == SPHERE)
+            {
+                XMMATRIX world = XMMatrixIdentity();
+                real32 x_translate = objects_to_render[i].x_coord;
+                translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
+                rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+                world = translation*rotation;
+                Bounding_Sphere test_sphere = sbs;
+                XMVECTOR test_center = XMLoadFloat3(&test_sphere.center);
+                XMVector3Transform(test_center, world);
+                XMStoreFloat3(&test_sphere.center, test_center);
+                if(check_sphere(frustum, test_sphere))
+                {
+                    opaques[num_rendered_opaque].x_coord = objects_to_render[i].x_coord;
+                    opaques[num_rendered_opaque].y_coord = objects_to_render[i].y_coord;
+                    opaques[num_rendered_opaque].mesh = objects_to_render[i].shape_type;
+                    opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
+                    ++num_rendered_opaque;
+                }
+
+            }
+            if(objects_to_render[i].shape_type == CUBE)
+            {
+                XMMATRIX world = XMMatrixIdentity();
+                real32 x_translate = objects_to_render[i].x_coord;
+                translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
+                rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+                world = translation*rotation;
+                Bounding_Sphere test_sphere = cbs;
+                XMVECTOR test_center = XMLoadFloat3(&test_sphere.center);
+                XMVector3Transform(test_center, world);
+                XMStoreFloat3(&test_sphere.center, test_center);
+                if(check_sphere(frustum, test_sphere))
+                {
+                    opaques[num_rendered_opaque].x_coord = objects_to_render[i].x_coord;
+                    opaques[num_rendered_opaque].y_coord = objects_to_render[i].y_coord;
+                    opaques[num_rendered_opaque].mesh = objects_to_render[i].shape_type;
+                    opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
+                    ++num_rendered_opaque;
+                }
+            }
+            if(objects_to_render[i].shape_type == PLANE)
+            {
+                opaques[num_rendered_opaque].x_coord = objects_to_render[i].x_coord;
+                opaques[num_rendered_opaque].y_coord = objects_to_render[i].y_coord;
+                opaques[num_rendered_opaque].mesh = objects_to_render[i].shape_type;
+                opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
+                opaques[num_rendered_opaque].world = XMMatrixIdentity();
+                scaling = XMMatrixScaling(75.0f, 10.0f, 75.0f);
+                translation = XMMatrixTranslation(0.0f, 10.0f, 0.0f);
+                opaques[num_rendered_opaque].world = scaling*translation;
+                ++num_rendered_opaque;
+            }
+
+            if(objects_to_render[i].shape_type == SKYBOX)
+            {
+                opaques[num_rendered_opaque].x_coord = objects_to_render[i].x_coord;
+                opaques[num_rendered_opaque].y_coord = objects_to_render[i].y_coord;
+                opaques[num_rendered_opaque].mesh = objects_to_render[i].shape_type;
+                opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
+                opaques[num_rendered_opaque].world = XMMatrixIdentity();
+                scaling = XMMatrixScaling(3.0f, 3.0f, 3.0f);
+                translation = XMMatrixTranslation(XMVectorGetX(cam_position), XMVectorGetY(cam_position), XMVectorGetZ(cam_position));
+                opaques[num_rendered_opaque].world = scaling*translation;
+                ++num_rendered_opaque;
+            }
         }
     }
 
-    for(int32 i = 0; i < num_transparent; ++i)
+    int num_rendered_transparent = 0;
+    for(int i = 0; i < num_transparent; ++i)
     {
-        transparents[i].world = XMMatrixIdentity();
-        real32 x_translate = 0;
-        real32 y_translate = 0;
-        if(transparents[i].shape_type == cube_mesh) 
+        if(objects_to_render->transparent)
         {
+            int j = 0;
+            if(objects_to_render[i].shape_type == SPHERE)
+            {
+                XMMATRIX world = XMMatrixIdentity();
+                real32 x_translate = objects_to_render[i].x_coord;
+                translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
+                rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+                world = translation*rotation;
+                Bounding_Sphere test_sphere = sbs;
+                XMVECTOR test_center = XMLoadFloat3(&test_sphere.center);
+                XMVector3Transform(test_center, world);
+                XMStoreFloat3(&test_sphere.center, test_center);
+                if(check_sphere(frustum, test_sphere))
+                {
+                    transparents[num_rendered_transparent].x_coord = objects_to_render[i].x_coord;
+                    transparents[num_rendered_transparent].y_coord = objects_to_render[i].y_coord;
+                    transparents[num_rendered_transparent].mesh = objects_to_render[i].shape_type;
+                    transparents[num_rendered_transparent].texture_info = objects_to_render[i].texture_info;
+                    ++num_rendered_transparent;
+                }
 
-            x_translate = transparents[i].x_coord;
-            translation = XMMatrixTranslation(x_translate, y_translate, 4.0f);
-            rotation_axis_y = XMVectorSet(0.0f, roty, 0.0f, 0.0f);
-            rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
-            roty = roty + 1.0f;
-            transparents[i].world = translation*rotation;
+            }
+            if(objects_to_render[i].shape_type == CUBE)
+            {
+                XMMATRIX world = XMMatrixIdentity();
+                real32 x_translate = objects_to_render[i].x_coord;
+                translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
+                rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+                world = translation*rotation;
+                Bounding_Sphere test_sphere = cbs;
+                XMVECTOR test_center = XMLoadFloat3(&test_sphere.center);
+                XMVector3Transform(test_center, world);
+                XMStoreFloat3(&test_sphere.center, test_center);
+                if(check_sphere(frustum, test_sphere))
+                {
+                    transparents[num_rendered_transparent].x_coord = objects_to_render[i].x_coord;
+                    transparents[num_rendered_transparent].y_coord = objects_to_render[i].y_coord;
+                    transparents[num_rendered_transparent].mesh = objects_to_render[i].shape_type;
+                    transparents[num_rendered_transparent].texture_info = objects_to_render[i].texture_info;
+                    ++num_rendered_transparent;
+                }
+            }
         }
-        else if (transparents[i].shape_type == sphere_mesh)
-        {
-
-            x_translate = transparents[i].x_coord;
-            translation = XMMatrixTranslation(x_translate, y_translate, 0.0f);
-            rotation_axis_y = XMVectorSet(0.0f, roty, 0.0f, 0.0f);  
-            rotation = XMMatrixRotationAxis(rotation_axis_y, -rotation_state);
-            roty = roty + 1.0f;
-            scaling = XMMatrixScaling(1.3f, 1.3f, 1.3f);
-            transparents[i].world = rotation*scaling*translation;
-        }
-    }
-#endif
-
-    for(int32 i = 0; i < num_opaque; ++i)
-    {
-        if(opaques[i].mesh == PLANE)
-        {
-            opaques[i].world = XMMatrixIdentity();
-            scaling = XMMatrixScaling(75.0f, 10.0f, 75.0f);
-            translation = XMMatrixTranslation(0.0f, 10.0f, 0.0f);
-            opaques[i].world = scaling*translation;
-        }
-
-        else if(opaques[i].mesh == SKYBOX)
-        {
-            opaques[i].world = XMMatrixIdentity();
-            scaling = XMMatrixScaling(3.0f, 3.0f, 3.0f);
-            translation = XMMatrixTranslation(XMVectorGetX(cam_position), XMVectorGetY(cam_position), XMVectorGetZ(cam_position));
-            opaques[i].world = scaling*translation;
-        }
-
-        else
-        {
-            opaques[i].world = XMMatrixIdentity();
-            real32 x_translate = opaques[i].x_coord;
-            translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
-            rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
-            opaques[i].world = translation*rotation;
-        }
-    }
-    
-    for(int32 i = 0; i < num_transparent; ++i)
-    {
-        transparents[i].world = XMMatrixIdentity();
-        real32 x_translate = transparents[i].x_coord;
-        translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
-        rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
-        transparents[i].world = translation*rotation;
     }
 
     device_context->VSSetShader(vertex_shader, 0, 0);
@@ -781,7 +871,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     XMMATRIX *cbpo_index = (XMMATRIX *)&cb_per_object.cube1;
 
     int k = 0;
-    for(int32 i = 0; i < num_opaque; ++i)
+    for(int32 i = 0; i < num_rendered_opaque; ++i)
     {
             *cbpo_index = XMMatrixTranspose(opaques[i].world);
             cbpo_index += 4;
@@ -789,7 +879,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
             ++k;
     }
 
-    for(int32 i = 0; i < num_transparent; ++i)
+    for(int32 i = 0; i < num_rendered_transparent; ++i)
     {
             *cbpo_index = XMMatrixTranspose(transparents[i].world);
             cbpo_index += 4;
@@ -798,17 +888,17 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
 
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
 
-    for(int i = 0; i < num_opaque; ++i)
+    for(int i = 0; i < num_rendered_opaque; ++i)
     {
         opaques[i].dist_from_cam = find_dist_from_cam(opaques[i].world);
     }
-    sort_opaque_dist(opaques, num_opaque);
+    sort_opaque_dist(opaques, num_rendered_opaque);
 
-    for(int i = 0; i < num_transparent; ++i)
+    for(int i = 0; i < num_rendered_transparent; ++i)
     {
         transparents[i].dist_from_cam = find_dist_from_cam(transparents[i].world);
     }
-    sort_transparent_dist(transparents, num_transparent);
+    sort_transparent_dist(transparents, num_rendered_transparent);
 
     device_context->OMSetBlendState(0, 0, 0xFFFFFFFF);
 
@@ -816,12 +906,10 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     event_grouper->BeginEvent(L"Render opaque objects");
 #endif
 
-    Sphere sphere = build_smooth_sphere();
     UINT size = (sizeof(cb_per_object.cube1)*4) / 16;
 
-    for(int32 i = 0; i < num_opaque; ++i)
+    for(int32 i = 0; i < num_rendered_opaque; ++i)
     {
-        int test = 0;
         if(opaques[i].mesh == PLANE)
         {
             #if DEBUG
@@ -891,7 +979,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     real32 blend_factor[] = {0.5f, 0.5f, 0.5f, 0.7f};
     device_context->OMSetBlendState(transparency, blend_factor, 0xFFFFFFFF);
 
-    for(int32 i = 0; i < num_transparent; ++i)
+    for(int32 i = 0; i < num_rendered_transparent; ++i)
     {
         if(transparents[i].mesh == CUBE)
         {

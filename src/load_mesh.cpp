@@ -4,8 +4,6 @@ void load_cube_mesh()
 {
     HRESULT hr;
 
-    #include "cube.h"
-
     D3D11_BUFFER_DESC ground_index_bd = {};
     ground_index_bd.Usage = D3D11_USAGE_DEFAULT;
     ground_index_bd.ByteWidth = sizeof(DWORD)*12*3;
@@ -14,7 +12,7 @@ void load_cube_mesh()
     ground_index_bd.MiscFlags = 0;
 
     D3D11_SUBRESOURCE_DATA ground_index_init_data ={};
-    ground_index_init_data.pSysMem = indices;
+    ground_index_init_data.pSysMem = cube_indices;
 
     hr = device->CreateBuffer(&ground_index_bd, &ground_index_init_data, &cube_index_buffer);
     AssertHR(hr);
@@ -28,7 +26,7 @@ void load_cube_mesh()
     vert_buffer_desc.MiscFlags = 0;
 
     D3D11_SUBRESOURCE_DATA vert_buffer_data = {};
-    vert_buffer_data.pSysMem = v;
+    vert_buffer_data.pSysMem = cube_vertices;
 
     hr = device->CreateBuffer(&vert_buffer_desc, &vert_buffer_data, &cube_vert_buffer);
     AssertHR(hr);
