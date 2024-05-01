@@ -132,19 +132,7 @@ void init_direct_input(HINSTANCE instance, HWND window)
     hr = di_mouse->SetCooperativeLevel(window, DISCL_EXCLUSIVE | DISCL_NOWINKEY | DISCL_FOREGROUND);
 }
 
-inline real32 get_magnitude(XMFLOAT3 *v1)
-{ 
-    XMVECTOR v2 = XMLoadFloat3(v1);
-    return(XMVectorGetX(XMVector3Length(v2))); 
-}
-
-inline void subtract_float3(XMFLOAT3 *f1, XMFLOAT3 *f2, XMFLOAT3 *result)
-{
-    XMVECTOR v1 = XMLoadFloat3(f1);
-    XMVECTOR v2 = XMLoadFloat3(f2);
-    XMVECTOR v_result = XMVectorSubtract(v1, v2);
-    XMStoreFloat3(result, v_result);
-}
+// TODO: Debug frustum culling always culling every object
 
 Frustum_Planes get_frustum_planes(XMMATRIX view_projection)
 {
