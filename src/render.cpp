@@ -11,9 +11,11 @@
 #include <dxgi1_2.h>
 #include <dxgidebug.h>
 #include <DirectXMath.h>
+#include <DirectXCollision.h>
 #include <dinput.h>
 
 #include <time.h>
+#include <vector>
 
 #include "render.h"
 #include "utils.cpp"
@@ -87,6 +89,7 @@ ID3D11BlendState* transparency;
 ID3D11RasterizerState *cull_none;
 ID3D11RasterizerState *ccw_cull;
 ID3D11RasterizerState *cw_cull;
+ID3D11RasterizerState *wireframe;
 
 IDirectInputDevice8* di_keyboard;
 IDirectInputDevice8* di_mouse;
@@ -132,227 +135,36 @@ void init_direct_input(HINSTANCE instance, HWND window)
     hr = di_mouse->SetCooperativeLevel(window, DISCL_EXCLUSIVE | DISCL_NOWINKEY | DISCL_FOREGROUND);
 }
 
-// TODO: Debug frustum culling always culling every object
-
-Frustum_Planes get_frustum_planes(XMMATRIX view_projection)
-{
-    // x, y, z, and w represent A, B, C and D in the plane equation
-    // where ABC are the xyz of the planes normal, and D is the plane constant
-    Frustum_Planes frustum;
-
-    XMFLOAT4X4 vp;
-    XMStoreFloat4x4(&vp, view_projection);
-
-    // Left Frustum Plane
-    // Add first column of the matrix to the fourth column
-    frustum.plane[0].x = vp._14 + vp._11; 
-    frustum.plane[0].y = vp._24 + vp._21;
-    frustum.plane[0].z = vp._34 + vp._31;
-    frustum.plane[0].w = vp._44 + vp._41;
-
-    // Right Frustum Plane
-    // Subtract first column of matrix from the fourth column
-    frustum.plane[1].x = vp._14 - vp._11; 
-    frustum.plane[1].y = vp._24 - vp._21;
-    frustum.plane[1].z = vp._34 - vp._31;
-    frustum.plane[1].w = vp._44 - vp._41;
-
-    // Top Frustum Plane
-    // Subtract second column of matrix from the fourth column
-    frustum.plane[2].x = vp._14 - vp._12; 
-    frustum.plane[2].y = vp._24 - vp._22;
-    frustum.plane[2].z = vp._34 - vp._32;
-    frustum.plane[2].w = vp._44 - vp._42;
-
-    // Bottom Frustum Plane
-    // Add second column of the matrix to the fourth column
-    frustum.plane[3].x = vp._14 + vp._12;
-    frustum.plane[3].y = vp._24 + vp._22;
-    frustum.plane[3].z = vp._34 + vp._32;
-    frustum.plane[3].w = vp._44 + vp._42;
-
-    // Near Frustum Plane
-    // We could add the third column to the fourth column to get the near plane,
-    // but we don't have to do this because the third column IS the near plane
-    frustum.plane[4].x = vp._13;
-    frustum.plane[4].y = vp._23;
-    frustum.plane[4].z = vp._33;
-    frustum.plane[4].w = vp._43;
-
-    // Far Frustum Plane
-    // Subtract third column of matrix from the fourth column
-    frustum.plane[5].x = vp._14 - vp._13; 
-    frustum.plane[5].y = vp._24 - vp._23;
-    frustum.plane[5].z = vp._34 - vp._33;
-    frustum.plane[5].w = vp._44 - vp._43;
-
-    // Normalize plane normals (A, B and C (xyz))
-    // Also take note that planes face inward
-    for(int i = 0; i < 6; ++i)
-    {
-        float length = sqrt((frustum.plane[i].x * frustum.plane[i].x) + (frustum.plane[i].y * frustum.plane[i].y) + (frustum.plane[i].z * frustum.plane[i].z));
-        frustum.plane[i].x /= length;
-        frustum.plane[i].y /= length;
-        frustum.plane[i].z /= length;
-        frustum.plane[i].w /= length;
-    }
-
-    return frustum;
-}
-
-Bounding_Box calculate_bounding_box(XMFLOAT3 *vertex_positions, int size)
+void calculate_bounding_box(Vertex *vertices, int size, XMFLOAT3 *b_min, XMFLOAT3 *b_max)
 {
     XMFLOAT3 min_vertex = XMFLOAT3(FLT_MAX, FLT_MAX, FLT_MAX);
     XMFLOAT3 max_vertex = XMFLOAT3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+    XMVECTOR min = XMLoadFloat3(&min_vertex);
+    XMVECTOR max = XMLoadFloat3(&max_vertex);
 
     for (int i = 0; i < size; ++i)
     {
-        //Get the smallest vertex 
-        min_vertex.x = min(min_vertex.x, vertex_positions[i].x);    // Find smallest x value in model
-        min_vertex.y = min(min_vertex.y, vertex_positions[i].y);    // Find smallest y value in model
-        min_vertex.z = min(min_vertex.z, vertex_positions[i].z);    // Find smallest z value in model
-
-        //Get the largest vertex 
-        max_vertex.x = max(max_vertex.x, vertex_positions[i].x);    // Find largest x value in model
-        max_vertex.y = max(max_vertex.y, vertex_positions[i].y);    // Find largest y value in model
-        max_vertex.z = max(max_vertex.z, vertex_positions[i].z);    // Find largest z value in model
+        XMVECTOR test_v = XMLoadFloat3(&vertices[i].pos);
+        min = XMVectorMin(min, test_v);
+        max = XMVectorMax(max, test_v);
     }
 
-    Bounding_Box bounding_box = {};
-    bounding_box.min_vert = min_vertex;
-    bounding_box.max_vert = max_vertex;
-    return(bounding_box);
+    XMStoreFloat3(b_min, min);
+    XMStoreFloat3(b_max, max);
 }
 
-Bounding_Sphere calculate_bounding_sphere(Vertex *vertices, int size){
-    XMVECTOR center = XMLoadFloat3(&vertices[0].pos);
-    real32 radius = 0.0001f;
-    XMVECTOR pos, diff;
-    real32 len, alpha, alphaSq;
-
-    for (int i = 0; i < 2; ++i){
-        for (int k = 0; k < size; ++k){
-            pos = XMLoadFloat3(&vertices[k].pos);
-            diff = pos - center;
-            len = XMVectorGetX(XMVector3Length(diff));
-            if (len > radius){
-                alpha = len / radius;
-                alphaSq = alpha * alpha;
-                radius = 0.5f * (alpha + 1 / alpha) * radius;
-                center = 0.5f * ((1 + 1 / alphaSq) * center + (1 - 1 / alphaSq) * pos);
-            }
-        }
-    }
-
-    for (int i = 0; i < size; ++i){
-        pos = XMLoadFloat3(&vertices[i].pos);
-        diff = pos - center;
-        len = XMVectorGetX(XMVector3Length(diff));
-        if (len > radius){
-            radius = (radius + len) / 2.0f;
-            center = center + ((len - radius) / len * diff);
-        }
-    }
-
-    Bounding_Sphere sphere = {};
-    XMStoreFloat3(&sphere.center, center);
-    sphere.radius = radius;
-    return(sphere);
-}
-
-bool32 check_point(Frustum_Planes frustum, real32 x, real32 y, real32 z)
+std::vector<Vertex> generate_debug_cube(XMFLOAT3 min, XMFLOAT3 max)
 {
-    for(int i = 0; i < 6; ++i) 
-    {
-        if(((frustum.plane[i].x * x) + (frustum.plane[i].y * y) + (frustum.plane[i].z * z) + frustum.plane[i].w) < 0.0f)
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-// Returns true if bounding sphere can be seen
-bool32 check_sphere(Frustum_Planes frustum, Bounding_Sphere sphere)
-{
-    for(int i = 0; i < 6; ++i)
-    {
-        if(((frustum.plane[i].x * sphere.center.x) + 
-            (frustum.plane[i].y * sphere.center.y) + 
-            (frustum.plane[i].z * sphere.center.z) + frustum.plane[i].w) < -(sphere.radius))
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool32 check_cube(Frustum_Planes frustum, real32 x, real32 y, real32 z, real32 r)
-{
-     for(int i = 0; i < 6; ++i)
-    {
-        if(frustum.plane[i].x * (x - r) +
-           frustum.plane[i].y * (y - r) +
-           frustum.plane[i].z * (z - r) + frustum.plane[i].w >= 0.0f)
-        {
-            continue;
-        }
-
-        if(frustum.plane[i].x * (x + r) +
-           frustum.plane[i].y * (y - r) +
-           frustum.plane[i].z * (z - r) + frustum.plane[i].w >= 0.0f)
-        {
-            continue;
-        }
-
-        if(frustum.plane[i].x * (x - r) +
-           frustum.plane[i].y * (y + r) +
-           frustum.plane[i].z * (z - r) + frustum.plane[i].w >= 0.0f)
-        {
-            continue;
-        }
-
-        if(frustum.plane[i].x * (x + r) +
-           frustum.plane[i].y * (y + r) +
-           frustum.plane[i].z * (z - r) + frustum.plane[i].w >= 0.0f)
-        {
-            continue;
-        }
-
-        if(frustum.plane[i].x * (x - r) +
-           frustum.plane[i].y * (y - r) +
-           frustum.plane[i].z * (z + r) + frustum.plane[i].w >= 0.0f)
-        {
-            continue;
-        }
-
-        if(frustum.plane[i].x * (x + r) +
-           frustum.plane[i].y * (y - r) +
-           frustum.plane[i].z * (z + r) + frustum.plane[i].w >= 0.0f)
-        {
-            continue;
-        }
-
-        if(frustum.plane[i].x * (x - r) +
-           frustum.plane[i].y * (y + r) +
-           frustum.plane[i].z * (z + r) + frustum.plane[i].w >= 0.0f)
-        {
-            continue;
-        }
-
-        if(frustum.plane[i].x * (x + r) +
-           frustum.plane[i].y * (y + r) +
-           frustum.plane[i].z * (z + r) + frustum.plane[i].w >= 0.0f)
-        {
-            continue;
-        }
-
-        return false;
-    }
-
-    return true;
+    std::vector<Vertex> verts;
+    verts.push_back(Vertex(min.x, min.y, min.z, 0, 0, 0, 0, 0));
+    verts.push_back(Vertex(min.x, min.y, max.z, 0, 0, 0, 0, 0));
+    verts.push_back(Vertex(min.x, max.y, min.z, 0, 0, 0, 0, 0));
+    verts.push_back(Vertex(min.x, max.y, max.z, 0, 0, 0, 0, 0));
+    verts.push_back(Vertex(max.x, min.y, min.z, 0, 0, 0, 0, 0));
+    verts.push_back(Vertex(max.x, min.y, max.z, 0, 0, 0, 0, 0));
+    verts.push_back(Vertex(max.x, max.y, min.z, 0, 0, 0, 0, 0));
+    verts.push_back(Vertex(max.x, max.y, max.z, 0, 0, 0, 0, 0));
+    return(verts);
 }
 
 internal real32 find_dist_from_cam(XMMATRIX cube)
@@ -580,6 +392,10 @@ void scene_init()
     cmdesc.CullMode = D3D11_CULL_NONE;
     hr = device->CreateRasterizerState(&cmdesc, &cull_none);
 
+    D3D11_RASTERIZER_DESC wireframe_desc = {};
+    wireframe_desc.FillMode = D3D11_FILL_WIREFRAME;
+    device->CreateRasterizerState(&wireframe_desc, &wireframe);
+
     D3D11_DEPTH_STENCIL_DESC dss_desc = {};
     dss_desc.DepthEnable = true;
     dss_desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
@@ -675,15 +491,36 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
         }
     }
 
+    // TODO: Do a single large allocation and use an arena to manage this per frame memory
     Render_Object *opaques;
     opaques = (Render_Object *)VirtualAlloc(0, num_opaque*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
     Render_Object *transparents;
     transparents = (Render_Object *)VirtualAlloc(0, num_transparent*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
-    Frustum_Planes frustum = get_frustum_planes(cam_view * cam_projection);
+    // ifdebug this later
+    Render_Object *debug_opaques;
+    debug_opaques = (Render_Object *)VirtualAlloc(0, num_opaque*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    Render_Object *debug_transparents;
+    debug_transparents = (Render_Object *)VirtualAlloc(0, num_transparent*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+
     Sphere sphere = build_smooth_sphere();
-    Bounding_Sphere sbs = calculate_bounding_sphere(sphere.vertices, array_count(sphere.vertices));
-    Bounding_Sphere cbs = calculate_bounding_sphere(cube_vertices, array_count(cube_vertices));
+
+    BoundingFrustum frustum;
+    BoundingFrustum::CreateFromMatrix(frustum, cam_projection);
+    frustum.Transform(frustum, cam_view);
+
+    XMFLOAT3 c_min, c_max, s_min, s_max;
+    calculate_bounding_box(cube_vertices, array_count(cube_vertices), &c_min, &c_max);
+    calculate_bounding_box(sphere.vertices, array_count(sphere.vertices), &s_min, &s_max);
+    XMVECTOR cv_min = XMLoadFloat3(&c_min);
+    XMVECTOR cv_max = XMLoadFloat3(&c_max);
+    XMVECTOR sv_min = XMLoadFloat3(&s_min);
+    XMVECTOR sv_max = XMLoadFloat3(&s_max);
+
+    BoundingBox c_aabb;
+    BoundingBox s_aabb;
+    c_aabb.CreateFromPoints(c_aabb, cv_min, cv_max);
+    s_aabb.CreateFromPoints(s_aabb, sv_min, sv_max);
 
     rotation_state += 1.0f * time;
     if (rotation_state > 6.28f)
@@ -711,18 +548,19 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
                 world = translation*rotation;
-                Bounding_Sphere test_sphere = sbs;
-                XMVECTOR test_center = XMLoadFloat3(&test_sphere.center);
-                XMVector3Transform(test_center, world);
-                XMStoreFloat3(&test_sphere.center, test_center);
-                if(check_sphere(frustum, test_sphere))
+                BoundingBox test;
+                s_aabb.Transform(test, world);
+                ContainmentType ct = frustum.Contains(test);
+                int g = 0;
+                if(ct != DISJOINT)
                 {
-                    opaques[num_rendered_opaque].x_coord = objects_to_render[i].x_coord;
-                    opaques[num_rendered_opaque].y_coord = objects_to_render[i].y_coord;
+                    opaques[num_rendered_opaque].world = world;
                     opaques[num_rendered_opaque].mesh = objects_to_render[i].shape_type;
                     opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
                     ++num_rendered_opaque;
                 }
+                debug_opaques[i].world = world;
+                debug_opaques[i].mesh = SPHERE;
 
             }
             if(objects_to_render[i].shape_type == CUBE)
@@ -732,23 +570,22 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
                 world = translation*rotation;
-                Bounding_Sphere test_sphere = cbs;
-                XMVECTOR test_center = XMLoadFloat3(&test_sphere.center);
-                XMVector3Transform(test_center, world);
-                XMStoreFloat3(&test_sphere.center, test_center);
-                if(check_sphere(frustum, test_sphere))
+                BoundingBox test;
+                c_aabb.Transform(test, world);
+                ContainmentType ct = frustum.Contains(test);
+                int g = 0;
+                if(ct != DISJOINT)
                 {
-                    opaques[num_rendered_opaque].x_coord = objects_to_render[i].x_coord;
-                    opaques[num_rendered_opaque].y_coord = objects_to_render[i].y_coord;
+                    opaques[num_rendered_opaque].world = world;
                     opaques[num_rendered_opaque].mesh = objects_to_render[i].shape_type;
                     opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
                     ++num_rendered_opaque;
                 }
+                debug_opaques[i].world = world;
+                debug_opaques[i].mesh = CUBE;
             }
             if(objects_to_render[i].shape_type == PLANE)
             {
-                opaques[num_rendered_opaque].x_coord = objects_to_render[i].x_coord;
-                opaques[num_rendered_opaque].y_coord = objects_to_render[i].y_coord;
                 opaques[num_rendered_opaque].mesh = objects_to_render[i].shape_type;
                 opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
                 opaques[num_rendered_opaque].world = XMMatrixIdentity();
@@ -760,8 +597,6 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
 
             if(objects_to_render[i].shape_type == SKYBOX)
             {
-                opaques[num_rendered_opaque].x_coord = objects_to_render[i].x_coord;
-                opaques[num_rendered_opaque].y_coord = objects_to_render[i].y_coord;
                 opaques[num_rendered_opaque].mesh = objects_to_render[i].shape_type;
                 opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
                 opaques[num_rendered_opaque].world = XMMatrixIdentity();
@@ -786,18 +621,19 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
                 world = translation*rotation;
-                Bounding_Sphere test_sphere = sbs;
-                XMVECTOR test_center = XMLoadFloat3(&test_sphere.center);
-                XMVector3Transform(test_center, world);
-                XMStoreFloat3(&test_sphere.center, test_center);
-                if(check_sphere(frustum, test_sphere))
+                BoundingBox test;
+                s_aabb.Transform(test, world);
+                ContainmentType ct = frustum.Contains(test);
+                int g = 0;
+                if(ct != DISJOINT)
                 {
-                    transparents[num_rendered_transparent].x_coord = objects_to_render[i].x_coord;
-                    transparents[num_rendered_transparent].y_coord = objects_to_render[i].y_coord;
+                    transparents[num_rendered_transparent].world = world;
                     transparents[num_rendered_transparent].mesh = objects_to_render[i].shape_type;
                     transparents[num_rendered_transparent].texture_info = objects_to_render[i].texture_info;
                     ++num_rendered_transparent;
                 }
+                debug_transparents[i].world = world;
+                debug_transparents[i].mesh = SPHERE;
 
             }
             if(objects_to_render[i].shape_type == CUBE)
@@ -807,18 +643,19 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
                 world = translation*rotation;
-                Bounding_Sphere test_sphere = cbs;
-                XMVECTOR test_center = XMLoadFloat3(&test_sphere.center);
-                XMVector3Transform(test_center, world);
-                XMStoreFloat3(&test_sphere.center, test_center);
-                if(check_sphere(frustum, test_sphere))
+                BoundingBox test;
+                c_aabb.Transform(test, world);
+                ContainmentType ct = frustum.Contains(test);
+                int g = 0;
+                if(ct != DISJOINT)
                 {
-                    transparents[num_rendered_transparent].x_coord = objects_to_render[i].x_coord;
-                    transparents[num_rendered_transparent].y_coord = objects_to_render[i].y_coord;
+                    transparents[num_rendered_transparent].world = world;
                     transparents[num_rendered_transparent].mesh = objects_to_render[i].shape_type;
                     transparents[num_rendered_transparent].texture_info = objects_to_render[i].texture_info;
                     ++num_rendered_transparent;
                 }
+                    debug_transparents[i].world = world;
+                    debug_transparents[i].mesh = CUBE;
             }
         }
     }
@@ -872,6 +709,21 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
             *cbpo_index = XMMatrixTranspose(transparents[i].world);
             cbpo_index += 4;
             transparents[i].cbuffer_offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
+    }
+
+    for(int32 i = 0; i < num_opaque; ++i)
+    {
+            *cbpo_index = XMMatrixTranspose(opaques[i].world);
+            cbpo_index += 4;
+            debug_opaques[i].cbuffer_offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
+            ++k;
+    }
+
+    for(int32 i = 0; i < num_transparent; ++i)
+    {
+            *cbpo_index = XMMatrixTranspose(transparents[i].world);
+            cbpo_index += 4;
+            debug_transparents[i].cbuffer_offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
     }
 
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
@@ -1007,6 +859,46 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
 #if DEBUG
     event_grouper->EndEvent();
 #endif
+#if 0
+    std::vector<Vertex> c_debug_cube_verts = generate_debug_cube(c_min, c_max);
+    std::vector<Vertex> s_debug_cube_verts = generate_debug_cube(s_min, s_max);
+
+    for(int i = 0; i < num_opaque; ++i)
+    {
+        if(debug_opaques[i].mesh == SPHERE)
+        {
+            load_cube_mesh();
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &debug_opaques[i].cbuffer_offset, &size);
+            device_context->RSSetState(wireframe);
+            device_context->Draw(24, 0);
+        }
+        else if(debug_opaques[i].mesh == CUBE)
+        {
+            load_cube_mesh();
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &debug_opaques[i].cbuffer_offset, &size);
+            device_context->RSSetState(wireframe);
+            device_context->Draw(24, 0);
+        }
+    }
+
+    for(int i = 0; i < num_transparent; ++i)
+    {
+        if(debug_transparents[i].mesh == SPHERE)
+        {
+            load_cube_mesh();
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &debug_transparents[i].cbuffer_offset, &size);
+            device_context->RSSetState(wireframe);
+            device_context->Draw(24, 0);
+        }
+        else if(debug_transparents[i].mesh == CUBE)
+        {
+            load_cube_mesh();
+            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &debug_transparents[i].cbuffer_offset, &size);
+            device_context->RSSetState(wireframe);
+            device_context->Draw(24, 0);
+        }
+    }
+    #endif
 
     swap_chain->Present(0, 0);
 }

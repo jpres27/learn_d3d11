@@ -67,8 +67,6 @@ struct Render_Object
     Shape_Type mesh;
     DirectX::XMMATRIX world;
     real32 dist_from_cam;
-    real32 x_coord;
-    real32 y_coord;
     Texture_Info texture_info;
     UINT cbuffer_offset;
 };
