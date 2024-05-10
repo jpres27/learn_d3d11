@@ -48,6 +48,8 @@ ID3D11Buffer* sphere_vert_buffer;
 ID3D11Buffer* ground_index_buffer;
 ID3D11Buffer* ground_vert_buffer;
 
+ID3D11Buffer* debug_vert_buffer;
+
 ID3D11DepthStencilView* depth_stencil_view;
 ID3D11Texture2D* depth_stencil_buffer;
 
@@ -110,6 +112,7 @@ Light light = {};
 #include "load_mesh.cpp"
 #include "load_texture.cpp"
 #include "timing.cpp"
+#include "debug_draw.cpp"
 
 void init_direct_input(HINSTANCE instance, HWND window)
 {
@@ -133,6 +136,69 @@ void init_direct_input(HINSTANCE instance, HWND window)
 
     hr = di_mouse->SetDataFormat(&c_dfDIMouse);
     hr = di_mouse->SetCooperativeLevel(window, DISCL_EXCLUSIVE | DISCL_NOWINKEY | DISCL_FOREGROUND);
+}
+
+void getFrustumPlanes(Frustum_Planes *frustum, XMMATRIX &vp)
+{
+    // x, y, z, and w represent A, B, C and D in the plane equation
+    // where ABC are the xyz of the planes normal, and D is the plane constant
+
+    XMFLOAT4X4 view_proj;
+    XMStoreFloat4x4(&view_proj, vp);
+
+    // Left Frustum Plane
+    // Add first column of the matrix to the fourth column
+    frustum->plane[0].x = view_proj._14 + view_proj._11; 
+    frustum->plane[0].y = view_proj._24 + view_proj._21;
+    frustum->plane[0].z = view_proj._34 + view_proj._31;
+    frustum->plane[0].w = view_proj._44 + view_proj._41;
+
+    // Right Frustum Plane
+    // Subtract first column of matrix from the fourth column
+    frustum->plane[1].x = view_proj._14 - view_proj._11; 
+    frustum->plane[1].y = view_proj._24 - view_proj._21;
+    frustum->plane[1].z = view_proj._34 - view_proj._31;
+    frustum->plane[1].w = view_proj._44 - view_proj._41;
+
+    // Top Frustum Plane
+    // Subtract second column of matrix from the fourth column
+    frustum->plane[2].x = view_proj._14 - view_proj._12; 
+    frustum->plane[2].y = view_proj._24 - view_proj._22;
+    frustum->plane[2].z = view_proj._34 - view_proj._32;
+    frustum->plane[2].w = view_proj._44 - view_proj._42;
+
+    // Bottom Frustum Plane
+    // Add second column of the matrix to the fourth column
+    frustum->plane[3].x = view_proj._14 + view_proj._12;
+    frustum->plane[3].y = view_proj._24 + view_proj._22;
+    frustum->plane[3].z = view_proj._34 + view_proj._32;
+    frustum->plane[3].w = view_proj._44 + view_proj._42;
+
+    // Near Frustum Plane
+    // We could add the third column to the fourth column to get the near plane,
+    // but we don't have to do this because the third column IS the near plane
+    frustum->plane[4].x = view_proj._13;
+    frustum->plane[4].y = view_proj._23;
+    frustum->plane[4].z = view_proj._33;
+    frustum->plane[4].w = view_proj._43;
+
+    // Far Frustum Plane
+    // Subtract third column of matrix from the fourth column
+    frustum->plane[5].x = view_proj._14 - view_proj._13; 
+    frustum->plane[5].y = view_proj._24 - view_proj._23;
+    frustum->plane[5].z = view_proj._34 - view_proj._33;
+    frustum->plane[5].w = view_proj._44 - view_proj._43;
+
+    // Normalize plane normals (A, B and C (xyz))
+    // Also take note that planes face inward
+    for(int i = 0; i < 6; ++i)
+    {
+        float length = sqrt((frustum->plane[i].x * frustum->plane[i].x) + (frustum->plane[i].y * frustum->plane[i].y) + (frustum->plane[i].z * frustum->plane[i].z));
+        frustum->plane[i].x /= length;
+        frustum->plane[i].y /= length;
+        frustum->plane[i].z /= length;
+        frustum->plane[i].w /= length;
+    }
 }
 
 void calculate_bounding_box(Vertex *vertices, int size, XMFLOAT3 *b_min, XMFLOAT3 *b_max)
@@ -165,6 +231,17 @@ std::vector<Vertex> generate_debug_cube(XMFLOAT3 min, XMFLOAT3 max)
     verts.push_back(Vertex(max.x, max.y, min.z, 0, 0, 0, 0, 0));
     verts.push_back(Vertex(max.x, max.y, max.z, 0, 0, 0, 0, 0));
     return(verts);
+}
+
+bool32 is_aabb_visible(Frustum_Planes frustum, XMFLOAT3 *min, XMFLOAT3 *max)
+{
+    bool32 visible = false;
+    XMVECTOR minimum = XMLoadFloat3(min);
+    XMVECTOR maximum = XMLoadFloat3(max);
+    XMVECTOR center = 0.5f * (minimum + maximum);
+    XMVECTOR extent = 0.5f * (maximum - minimum);
+    // TODO: Finish this function!
+    return visible;
 }
 
 internal real32 find_dist_from_cam(XMMATRIX cube)
@@ -497,17 +574,10 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     Render_Object *transparents;
     transparents = (Render_Object *)VirtualAlloc(0, num_transparent*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
-    // ifdebug this later
-    Render_Object *debug_opaques;
-    debug_opaques = (Render_Object *)VirtualAlloc(0, num_opaque*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-    Render_Object *debug_transparents;
-    debug_transparents = (Render_Object *)VirtualAlloc(0, num_transparent*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-
     Sphere sphere = build_smooth_sphere();
 
     BoundingFrustum frustum;
-    BoundingFrustum::CreateFromMatrix(frustum, cam_projection);
-    frustum.Transform(frustum, cam_view);
+    BoundingFrustum::CreateFromMatrix(frustum, cam_view*cam_projection);
 
     XMFLOAT3 c_min, c_max, s_min, s_max;
     calculate_bounding_box(cube_vertices, array_count(cube_vertices), &c_min, &c_max);
@@ -551,6 +621,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 BoundingBox test;
                 s_aabb.Transform(test, world);
                 ContainmentType ct = frustum.Contains(test);
+
                 int g = 0;
                 if(ct != DISJOINT)
                 {
@@ -559,10 +630,8 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                     opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
                     ++num_rendered_opaque;
                 }
-                debug_opaques[i].world = world;
-                debug_opaques[i].mesh = SPHERE;
-
             }
+
             if(objects_to_render[i].shape_type == CUBE)
             {
                 XMMATRIX world = XMMatrixIdentity();
@@ -581,9 +650,8 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                     opaques[num_rendered_opaque].texture_info = objects_to_render[i].texture_info;
                     ++num_rendered_opaque;
                 }
-                debug_opaques[i].world = world;
-                debug_opaques[i].mesh = CUBE;
             }
+
             if(objects_to_render[i].shape_type == PLANE)
             {
                 opaques[num_rendered_opaque].mesh = objects_to_render[i].shape_type;
@@ -632,10 +700,8 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                     transparents[num_rendered_transparent].texture_info = objects_to_render[i].texture_info;
                     ++num_rendered_transparent;
                 }
-                debug_transparents[i].world = world;
-                debug_transparents[i].mesh = SPHERE;
-
             }
+
             if(objects_to_render[i].shape_type == CUBE)
             {
                 XMMATRIX world = XMMatrixIdentity();
@@ -654,8 +720,6 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                     transparents[num_rendered_transparent].texture_info = objects_to_render[i].texture_info;
                     ++num_rendered_transparent;
                 }
-                    debug_transparents[i].world = world;
-                    debug_transparents[i].mesh = CUBE;
             }
         }
     }
@@ -709,21 +773,6 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
             *cbpo_index = XMMatrixTranspose(transparents[i].world);
             cbpo_index += 4;
             transparents[i].cbuffer_offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
-    }
-
-    for(int32 i = 0; i < num_opaque; ++i)
-    {
-            *cbpo_index = XMMatrixTranspose(opaques[i].world);
-            cbpo_index += 4;
-            debug_opaques[i].cbuffer_offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
-            ++k;
-    }
-
-    for(int32 i = 0; i < num_transparent; ++i)
-    {
-            *cbpo_index = XMMatrixTranspose(transparents[i].world);
-            cbpo_index += 4;
-            debug_transparents[i].cbuffer_offset = ((sizeof(cb_per_object.cube1)*4) / 16) * k;
     }
 
     device_context->UpdateSubresource(cb_per_object_buffer, 0, 0, &cb_per_object, 0, 0);
@@ -859,46 +908,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
 #if DEBUG
     event_grouper->EndEvent();
 #endif
-#if 0
-    std::vector<Vertex> c_debug_cube_verts = generate_debug_cube(c_min, c_max);
-    std::vector<Vertex> s_debug_cube_verts = generate_debug_cube(s_min, s_max);
 
-    for(int i = 0; i < num_opaque; ++i)
-    {
-        if(debug_opaques[i].mesh == SPHERE)
-        {
-            load_cube_mesh();
-            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &debug_opaques[i].cbuffer_offset, &size);
-            device_context->RSSetState(wireframe);
-            device_context->Draw(24, 0);
-        }
-        else if(debug_opaques[i].mesh == CUBE)
-        {
-            load_cube_mesh();
-            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &debug_opaques[i].cbuffer_offset, &size);
-            device_context->RSSetState(wireframe);
-            device_context->Draw(24, 0);
-        }
-    }
-
-    for(int i = 0; i < num_transparent; ++i)
-    {
-        if(debug_transparents[i].mesh == SPHERE)
-        {
-            load_cube_mesh();
-            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &debug_transparents[i].cbuffer_offset, &size);
-            device_context->RSSetState(wireframe);
-            device_context->Draw(24, 0);
-        }
-        else if(debug_transparents[i].mesh == CUBE)
-        {
-            load_cube_mesh();
-            device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &debug_transparents[i].cbuffer_offset, &size);
-            device_context->RSSetState(wireframe);
-            device_context->Draw(24, 0);
-        }
-    }
-    #endif
 
     swap_chain->Present(0, 0);
 }
