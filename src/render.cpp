@@ -465,12 +465,15 @@ void scene_init()
     hr = device->CreateRasterizerState(&cmdesc, &ccw_cull);
     cmdesc.FrontCounterClockwise = false;
     hr = device->CreateRasterizerState(&cmdesc, &cw_cull);
-    // Should we clear the struct for this last one?
-    cmdesc.CullMode = D3D11_CULL_NONE;
-    hr = device->CreateRasterizerState(&cmdesc, &cull_none);
+
+    D3D11_RASTERIZER_DESC cndesc = {};
+    cndesc.FillMode = D3D11_FILL_SOLID;
+    cndesc.CullMode = D3D11_CULL_NONE;
+    hr = device->CreateRasterizerState(&cndesc, &cull_none);
 
     D3D11_RASTERIZER_DESC wireframe_desc = {};
     wireframe_desc.FillMode = D3D11_FILL_WIREFRAME;
+    wireframe_desc.CullMode = D3D11_CULL_NONE;
     device->CreateRasterizerState(&wireframe_desc, &wireframe);
 
     D3D11_DEPTH_STENCIL_DESC dss_desc = {};
@@ -550,6 +553,37 @@ void detect_input(real64 time, HWND window)
     return;
 }
 
+void clean_up()
+{
+    swap_chain->Release();
+    device->Release();
+    device_context->Release();
+    render_target_view->Release();
+    vertex_shader->Release();
+    pixel_shader->Release();
+    vertex_layout->Release();
+    depth_stencil_view->Release();
+    depth_stencil_buffer->Release();
+    cb_per_object_buffer->Release();
+    transparency->Release();
+    ccw_cull->Release();
+    cw_cull->Release();
+    cb_per_frame_buffer->Release();
+
+    di_keyboard->Unacquire();
+    di_mouse->Unacquire();
+    direct_input->Release();
+
+    sphere_index_buffer->Release();
+    sphere_vert_buffer->Release();
+
+    skymap_vs->Release();
+    skymap_ps->Release();
+
+    ds_less_equal->Release();
+    cull_none->Release();
+}
+
 
 void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *texture_list, real64 time)
 {
@@ -621,8 +655,6 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 BoundingBox test;
                 s_aabb.Transform(test, world);
                 ContainmentType ct = frustum.Contains(test);
-
-                int g = 0;
                 if(ct != DISJOINT)
                 {
                     opaques[num_rendered_opaque].world = world;
@@ -642,7 +674,6 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 BoundingBox test;
                 c_aabb.Transform(test, world);
                 ContainmentType ct = frustum.Contains(test);
-                int g = 0;
                 if(ct != DISJOINT)
                 {
                     opaques[num_rendered_opaque].world = world;
@@ -692,7 +723,6 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 BoundingBox test;
                 s_aabb.Transform(test, world);
                 ContainmentType ct = frustum.Contains(test);
-                int g = 0;
                 if(ct != DISJOINT)
                 {
                     transparents[num_rendered_transparent].world = world;
@@ -712,7 +742,6 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 BoundingBox test;
                 c_aabb.Transform(test, world);
                 ContainmentType ct = frustum.Contains(test);
-                int g = 0;
                 if(ct != DISJOINT)
                 {
                     transparents[num_rendered_transparent].world = world;
@@ -911,6 +940,9 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
 
 
     swap_chain->Present(0, 0);
+
+    VirtualFree(opaques, 0, MEM_RELEASE);
+    VirtualFree(transparents, 0, MEM_RELEASE);
 }
 
 LRESULT CALLBACK win32_main_window_callback(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -1085,6 +1117,7 @@ int WINAPI WinMain(HINSTANCE instance,
         detect_input(frame_time, window);
         update_and_render(game_objects, num_objects, texture_info, frame_time);
     }
+    clean_up();
     
     return(0);
 }
