@@ -14,6 +14,13 @@
 #include <DirectXCollision.h>
 #include <dinput.h>
 
+#define IMGUI_IMPLEMENTATION
+#include "dear_imgui_single.h"
+#include "../external/dearimgui/backends/imgui_impl_dx11.h"
+#include "../external/dearimgui/backends/imgui_impl_dx11.cpp"
+#include "../external/dearimgui/backends/imgui_impl_win32.h"
+#include "../external/dearimgui/backends/imgui_impl_win32.cpp"
+
 #include <time.h>
 #include <vector>
 
@@ -610,8 +617,15 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
 
     Sphere sphere = build_smooth_sphere();
 
+    /*
+        View:            World-space to view-space matrix
+        Projection:      View-space to clip-space matrix
+        View-Projection: World-space to clip-space matrix
+    */
+
+
     BoundingFrustum frustum;
-    BoundingFrustum::CreateFromMatrix(frustum, cam_view*cam_projection);
+    BoundingFrustum::CreateFromMatrix(frustum, cam_projection);
 
     XMFLOAT3 c_min, c_max, s_min, s_max;
     calculate_bounding_box(cube_vertices, array_count(cube_vertices), &c_min, &c_max);
@@ -652,8 +666,10 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
                 world = translation*rotation;
+                XMMATRIX wv = XMMatrixIdentity();
+                wv = world*cam_view;
                 BoundingBox test;
-                s_aabb.Transform(test, world);
+                s_aabb.Transform(test, wv);
                 ContainmentType ct = frustum.Contains(test);
                 if(ct != DISJOINT)
                 {
@@ -671,8 +687,10 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
                 world = translation*rotation;
+                XMMATRIX wv = XMMatrixIdentity();
+                wv = world*cam_view;
                 BoundingBox test;
-                c_aabb.Transform(test, world);
+                s_aabb.Transform(test, wv);
                 ContainmentType ct = frustum.Contains(test);
                 if(ct != DISJOINT)
                 {
@@ -720,8 +738,10 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
                 world = translation*rotation;
+                XMMATRIX wv = XMMatrixIdentity();
+                wv = world*cam_view;
                 BoundingBox test;
-                s_aabb.Transform(test, world);
+                s_aabb.Transform(test, wv);
                 ContainmentType ct = frustum.Contains(test);
                 if(ct != DISJOINT)
                 {
@@ -739,8 +759,10 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
                 world = translation*rotation;
+                XMMATRIX wv = XMMatrixIdentity();
+                wv = world*cam_view;
                 BoundingBox test;
-                c_aabb.Transform(test, world);
+                s_aabb.Transform(test, wv);
                 ContainmentType ct = frustum.Contains(test);
                 if(ct != DISJOINT)
                 {
