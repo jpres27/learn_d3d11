@@ -380,6 +380,15 @@ void d3d11_init(HINSTANCE hInstance, HWND window)
     dxgi_info->Release();
 #endif
 
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    // io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+    ImGui_ImplWin32_Init(window);
+    ImGui_ImplDX11_Init(device, device_context);
+
     //Describe our SwapChain
     DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = {};
     swap_chain_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
