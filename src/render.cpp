@@ -109,6 +109,8 @@ real64 rotation_state = 0.01f;
 
 Light light = {};
 
+bool32 show_num_rendered;
+
 // TODO: Make shader loading not ad hoc, once it makes sense to do so
 #include "d3d11_vshader.h"
 #include "d3d11_pshader.h"
@@ -537,6 +539,11 @@ void detect_input(real64 time, HWND window)
     if(keyboardState[DIK_ESCAPE] & 0x80)
         PostMessage(window, WM_DESTROY, 0, 0);
 
+    if(keyboardState[DIK_K] & 0x80)
+    {
+        show_num_rendered = !show_num_rendered;
+    }
+
     real32 speed = 15.0f * time;
 
     if(keyboardState[DIK_A] & 0x80)
@@ -786,6 +793,12 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 }
             }
         }
+    }
+
+    if(show_num_rendered)
+    {
+        ImGui::Text("Opaque rendered: %i", num_rendered_opaque);
+        ImGui::Text("Transparent rendered: %i", num_rendered_transparent);
     }
 
     device_context->VSSetShader(vertex_shader, 0, 0);
