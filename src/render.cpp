@@ -598,6 +598,10 @@ void clean_up()
 
     ds_less_equal->Release();
     cull_none->Release();
+
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
 }
 
 
@@ -970,6 +974,9 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
 #endif
 
 
+    ImGui::Render();
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
     swap_chain->Present(0, 0);
 
     VirtualFree(opaques, 0, MEM_RELEASE);
@@ -978,6 +985,12 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
 
 LRESULT CALLBACK win32_main_window_callback(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    if (ImGui_ImplWin32_WndProcHandler(window, msg, wParam, lParam))
+    {
+        return true;
+    }
+
     switch( msg )
     {
     case WM_KEYDOWN:
@@ -1137,6 +1150,11 @@ int WINAPI WinMain(HINSTANCE instance,
     while(running)
     {
         messageloop(window);
+
+        ImGui_ImplDX11_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+
         frame_count++;
         if(get_time() > 1.0f)
         {
