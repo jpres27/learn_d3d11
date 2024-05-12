@@ -643,7 +643,6 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
         View-Projection: World-space to clip-space matrix
     */
 
-
     BoundingFrustum frustum;
     BoundingFrustum::CreateFromMatrix(frustum, cam_projection);
 
@@ -675,6 +674,8 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     real32 roty = 1.0f;
 
     int num_rendered_opaque = 0;
+    int num_rendered_transparent = 0;
+
     for(int i = 0; i < num_opaque; ++i)
     {
         if(!objects_to_render->transparent)
@@ -745,7 +746,6 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
         }
     }
 
-    int num_rendered_transparent = 0;
     for(int i = 0; i < num_transparent; ++i)
     {
         if(objects_to_render->transparent)
@@ -1120,6 +1120,9 @@ int WINAPI WinMain(HINSTANCE instance,
     int32 num_transparent_cube = num_transparent - num_transparent_sphere;
 #endif
 
+    // TODO: Reinstate the random generation of object numbers. Will need to either move
+    // setting transparency out of the init function or leave it in there and remove above code.
+    // May need to debug transparents not being rendered as well.
 
     const int32 num_shapes = 8;
     int32 num_cube = 4;
