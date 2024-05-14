@@ -986,6 +986,16 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     event_grouper->EndEvent();
 #endif
 
+    // TODO: Create new RenderTargetView and Texture2D for rendering our 3D scene, then set them up and bind
+    // those instead of the backbuffer render target.
+
+    // TODO: Implement post-processing stuff here; Call OMSetRenderTargets() for rendering to the backbuffer
+    // and set up the post-processing shader bindings. Then figure out what needs to happen next.
+
+    // TODO: Use a ShaderResourceView to wrap the Texture2D which we rendered the 3D scene into. Then use PSSetShaderResources()
+    // to bind that SRV. Look at skybox rendering for all of the things that can and may need to be set before
+    // being able to draw. Then we need to figure out what, if anything, needs to be done to send that texture to the
+    // new shader (which needs to be written) and then to the backbuffer to be displayed.
 
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
