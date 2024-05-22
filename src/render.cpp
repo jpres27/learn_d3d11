@@ -42,19 +42,17 @@ real64 frame_time;
 IDXGISwapChain1* swap_chain;
 ID3D11Device1* device;
 ID3D11DeviceContext1* device_context;
+ID3D11RenderTargetView* geometry_to_texture;
 ID3D11RenderTargetView* render_target_view;
 
 ID3DUserDefinedAnnotation *event_grouper;
 
 ID3D11Buffer* cube_index_buffer;
 ID3D11Buffer* cube_vert_buffer;
-
 ID3D11Buffer* sphere_index_buffer;
 ID3D11Buffer* sphere_vert_buffer;
-
 ID3D11Buffer* ground_index_buffer;
 ID3D11Buffer* ground_vert_buffer;
-
 ID3D11Buffer* debug_vert_buffer;
 
 ID3D11DepthStencilView* depth_stencil_view;
@@ -63,7 +61,6 @@ ID3D11Texture2D* depth_stencil_buffer;
 ID3D11VertexShader* vertex_shader;
 ID3D11PixelShader* pixel_shader;
 ID3D11InputLayout* vertex_layout;
-
 ID3D11VertexShader *skymap_vs;
 ID3D11PixelShader *skymap_ps;
 
@@ -147,69 +144,6 @@ void init_direct_input(HINSTANCE instance, HWND window)
     hr = di_mouse->SetCooperativeLevel(window, DISCL_EXCLUSIVE | DISCL_NOWINKEY | DISCL_FOREGROUND);
 }
 
-void getFrustumPlanes(Frustum_Planes *frustum, XMMATRIX &vp)
-{
-    // x, y, z, and w represent A, B, C and D in the plane equation
-    // where ABC are the xyz of the planes normal, and D is the plane constant
-
-    XMFLOAT4X4 view_proj;
-    XMStoreFloat4x4(&view_proj, vp);
-
-    // Left Frustum Plane
-    // Add first column of the matrix to the fourth column
-    frustum->plane[0].x = view_proj._14 + view_proj._11; 
-    frustum->plane[0].y = view_proj._24 + view_proj._21;
-    frustum->plane[0].z = view_proj._34 + view_proj._31;
-    frustum->plane[0].w = view_proj._44 + view_proj._41;
-
-    // Right Frustum Plane
-    // Subtract first column of matrix from the fourth column
-    frustum->plane[1].x = view_proj._14 - view_proj._11; 
-    frustum->plane[1].y = view_proj._24 - view_proj._21;
-    frustum->plane[1].z = view_proj._34 - view_proj._31;
-    frustum->plane[1].w = view_proj._44 - view_proj._41;
-
-    // Top Frustum Plane
-    // Subtract second column of matrix from the fourth column
-    frustum->plane[2].x = view_proj._14 - view_proj._12; 
-    frustum->plane[2].y = view_proj._24 - view_proj._22;
-    frustum->plane[2].z = view_proj._34 - view_proj._32;
-    frustum->plane[2].w = view_proj._44 - view_proj._42;
-
-    // Bottom Frustum Plane
-    // Add second column of the matrix to the fourth column
-    frustum->plane[3].x = view_proj._14 + view_proj._12;
-    frustum->plane[3].y = view_proj._24 + view_proj._22;
-    frustum->plane[3].z = view_proj._34 + view_proj._32;
-    frustum->plane[3].w = view_proj._44 + view_proj._42;
-
-    // Near Frustum Plane
-    // We could add the third column to the fourth column to get the near plane,
-    // but we don't have to do this because the third column IS the near plane
-    frustum->plane[4].x = view_proj._13;
-    frustum->plane[4].y = view_proj._23;
-    frustum->plane[4].z = view_proj._33;
-    frustum->plane[4].w = view_proj._43;
-
-    // Far Frustum Plane
-    // Subtract third column of matrix from the fourth column
-    frustum->plane[5].x = view_proj._14 - view_proj._13; 
-    frustum->plane[5].y = view_proj._24 - view_proj._23;
-    frustum->plane[5].z = view_proj._34 - view_proj._33;
-    frustum->plane[5].w = view_proj._44 - view_proj._43;
-
-    // Normalize plane normals (A, B and C (xyz))
-    // Also take note that planes face inward
-    for(int i = 0; i < 6; ++i)
-    {
-        float length = sqrt((frustum->plane[i].x * frustum->plane[i].x) + (frustum->plane[i].y * frustum->plane[i].y) + (frustum->plane[i].z * frustum->plane[i].z));
-        frustum->plane[i].x /= length;
-        frustum->plane[i].y /= length;
-        frustum->plane[i].z /= length;
-        frustum->plane[i].w /= length;
-    }
-}
-
 void calculate_bounding_box(Vertex *vertices, int size, XMFLOAT3 *b_min, XMFLOAT3 *b_max)
 {
     XMFLOAT3 min_vertex = XMFLOAT3(FLT_MAX, FLT_MAX, FLT_MAX);
@@ -226,31 +160,6 @@ void calculate_bounding_box(Vertex *vertices, int size, XMFLOAT3 *b_min, XMFLOAT
 
     XMStoreFloat3(b_min, min);
     XMStoreFloat3(b_max, max);
-}
-
-std::vector<Vertex> generate_debug_cube(XMFLOAT3 min, XMFLOAT3 max)
-{
-    std::vector<Vertex> verts;
-    verts.push_back(Vertex(min.x, min.y, min.z, 0, 0, 0, 0, 0));
-    verts.push_back(Vertex(min.x, min.y, max.z, 0, 0, 0, 0, 0));
-    verts.push_back(Vertex(min.x, max.y, min.z, 0, 0, 0, 0, 0));
-    verts.push_back(Vertex(min.x, max.y, max.z, 0, 0, 0, 0, 0));
-    verts.push_back(Vertex(max.x, min.y, min.z, 0, 0, 0, 0, 0));
-    verts.push_back(Vertex(max.x, min.y, max.z, 0, 0, 0, 0, 0));
-    verts.push_back(Vertex(max.x, max.y, min.z, 0, 0, 0, 0, 0));
-    verts.push_back(Vertex(max.x, max.y, max.z, 0, 0, 0, 0, 0));
-    return(verts);
-}
-
-bool32 is_aabb_visible(Frustum_Planes frustum, XMFLOAT3 *min, XMFLOAT3 *max)
-{
-    bool32 visible = false;
-    XMVECTOR minimum = XMLoadFloat3(min);
-    XMVECTOR maximum = XMLoadFloat3(max);
-    XMVECTOR center = 0.5f * (minimum + maximum);
-    XMVECTOR extent = 0.5f * (maximum - minimum);
-    // TODO: Finish this function!
-    return visible;
 }
 
 internal real32 find_dist_from_cam(XMMATRIX cube)
@@ -409,6 +318,25 @@ void d3d11_init(HINSTANCE hInstance, HWND window)
     dxgi_factory->Release();
     dxgi_adapter->Release();
     dxgi_device->Release();
+
+    D3D11_TEXTURE2D_DESC desc;
+    desc.Width = WIDTH;
+    desc.Height = HEIGHT;
+    desc.MipLevels = desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DYNAMIC;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    desc.MiscFlags = 0;
+
+    ID3D11Texture2D* geometry_pass;
+    device->CreateTexture2D(desc, NULL, geometry_pass);
+    D3D11_RENDER_TARGET_VIEW_DESC gtt_desc = {};
+    gtt_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    gtt_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    gtt_desc
+    device->CreateRenderTargetView(geometry_pass, 0, geometry_to_texture);
 
     ID3D11Texture2D* backbuffer;
     swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backbuffer);
