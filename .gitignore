@@ -5,3 +5,5 @@ src/d3d11_pshader.h
 src/d3d11_vshader.h
 src/skymap_vshader.h
 src/skymap_pshader.h
+src/postprocessing_pshader.h
+src/postprocessing_vshader.h

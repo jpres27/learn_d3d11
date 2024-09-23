@@ -318,7 +318,7 @@ void d3d11_init(HINSTANCE hInstance, HWND window)
     dxgi_factory->Release();
     dxgi_adapter->Release();
     dxgi_device->Release();
-
+#if 0
     D3D11_TEXTURE2D_DESC desc;
     desc.Width = WIDTH;
     desc.Height = HEIGHT;
@@ -331,12 +331,12 @@ void d3d11_init(HINSTANCE hInstance, HWND window)
     desc.MiscFlags = 0;
 
     ID3D11Texture2D* geometry_pass;
-    device->CreateTexture2D(desc, NULL, geometry_pass);
+    device->CreateTexture2D(&desc, NULL, &geometry_pass);
     D3D11_RENDER_TARGET_VIEW_DESC gtt_desc = {};
     gtt_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     gtt_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-    gtt_desc
     device->CreateRenderTargetView(geometry_pass, 0, geometry_to_texture);
+#endif
 
     ID3D11Texture2D* backbuffer;
     swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backbuffer);
