@@ -42,8 +42,10 @@ real64 frame_time;
 IDXGISwapChain1* swap_chain;
 ID3D11Device1* device;
 ID3D11DeviceContext1* device_context;
-ID3D11RenderTargetView* geometry_to_texture;
+ID3D11RenderTargetView* offscreen_texture_rtv;
 ID3D11RenderTargetView* render_target_view;
+ID3D11ShaderResourceView* offscreen_texture_srv;
+ID3D11UnorderedAccessView* backbuffer_uav;
 
 ID3DUserDefinedAnnotation *event_grouper;
 
@@ -63,6 +65,7 @@ ID3D11PixelShader* pixel_shader;
 ID3D11InputLayout* vertex_layout;
 ID3D11VertexShader *skymap_vs;
 ID3D11PixelShader *skymap_ps;
+ID3D11ComputeShader *postprocess_shader;
 
 ID3D11Buffer* cb_per_object_buffer;
 ID3D11Buffer* cb_per_frame_buffer;
@@ -113,6 +116,7 @@ bool32 show_num_rendered;
 #include "d3d11_pshader.h"
 #include "skymap_vshader.h"
 #include "skymap_pshader.h"
+#include "postprocessing_shader.h"
 
 #include "cube.h"
 #include "load_mesh.cpp"
@@ -302,11 +306,13 @@ void d3d11_init(HINSTANCE hInstance, HWND window)
 
     //Describe our SwapChain
     DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = {};
+    swap_chain_desc.Height = HEIGHT;
+    swap_chain_desc.Width = WIDTH;
     swap_chain_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     swap_chain_desc.Stereo = FALSE;
     swap_chain_desc.SampleDesc.Count = 1;
     swap_chain_desc.SampleDesc.Quality = 0;
-    swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_UNORDERED_ACCESS;
     swap_chain_desc.BufferCount = 2;
     swap_chain_desc.Scaling = DXGI_SCALING_STRETCH;
     swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
@@ -318,34 +324,35 @@ void d3d11_init(HINSTANCE hInstance, HWND window)
     dxgi_factory->Release();
     dxgi_adapter->Release();
     dxgi_device->Release();
-#if 0
-    D3D11_TEXTURE2D_DESC desc;
+
+    D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = WIDTH;
     desc.Height = HEIGHT;
     desc.MipLevels = desc.ArraySize = 1;
     desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.SampleDesc.Count = 1;
-    desc.Usage = D3D11_USAGE_DYNAMIC;
-    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+    desc.CPUAccessFlags = 0;
     desc.MiscFlags = 0;
 
-    ID3D11Texture2D* geometry_pass;
-    device->CreateTexture2D(&desc, NULL, &geometry_pass);
-    D3D11_RENDER_TARGET_VIEW_DESC gtt_desc = {};
-    gtt_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    gtt_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-    device->CreateRenderTargetView(geometry_pass, 0, geometry_to_texture);
-#endif
+    ID3D11Texture2D* offscreen_texture;
+    device->CreateTexture2D(&desc, NULL, &offscreen_texture);
+    D3D11_RENDER_TARGET_VIEW_DESC offscreen_texture_desc = {};
+    offscreen_texture_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    offscreen_texture_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    device->CreateRenderTargetView(offscreen_texture, &offscreen_texture_desc, &offscreen_texture_rtv);
+    device->CreateShaderResourceView(offscreen_texture, 0, &offscreen_texture_srv);
 
     ID3D11Texture2D* backbuffer;
     swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backbuffer);
-
     device->CreateRenderTargetView(backbuffer, 0, &render_target_view);
-    // backbuffer->Release();
+    device->CreateUnorderedAccessView(backbuffer, 0, &backbuffer_uav);
 
     D3D11_TEXTURE2D_DESC depth_stencil_desc = {};
-    backbuffer->GetDesc(&depth_stencil_desc);
+    offscreen_texture->GetDesc(&depth_stencil_desc);
+    depth_stencil_desc.Width = WIDTH;
+    depth_stencil_desc.Height = HEIGHT;
     depth_stencil_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
     depth_stencil_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 
@@ -363,14 +370,7 @@ void scene_init()
     hr = device->CreateVertexShader(skymap_vshader, sizeof(skymap_vshader), 0, &skymap_vs);
     hr = device->CreatePixelShader(skymap_pshader, sizeof(skymap_pshader), 0, &skymap_ps);
 
-    D3D11_VIEWPORT viewport = {};
-    viewport.TopLeftX = 0;
-    viewport.TopLeftY = 0;
-    viewport.Width = WIDTH;
-    viewport.Height = HEIGHT;
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 1.0f;
-    device_context->RSSetViewports(1, &viewport);
+    hr = device->CreateComputeShader(postprocessing_shader, sizeof(postprocessing_shader), 0, &postprocess_shader);
 
     D3D11_BUFFER_DESC cb_per_object_bd = {};
     cb_per_object_bd.Usage = D3D11_USAGE_DEFAULT;
@@ -542,6 +542,14 @@ void clean_up()
 
 void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *texture_list, real64 time)
 {
+    D3D11_VIEWPORT viewport = {};
+    viewport.TopLeftX = 0;
+    viewport.TopLeftY = 0;
+    viewport.Width = WIDTH;
+    viewport.Height = HEIGHT;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+    device_context->RSSetViewports(1, &viewport);
 
     int num_opaque = 0;
     int num_transparent = 0;
@@ -731,13 +739,16 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
 
     device_context->VSSetShader(vertex_shader, 0, 0);
     device_context->PSSetShader(pixel_shader, 0, 0);
-    device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
+    // device_context->OMSetRenderTargets(1, &render_target_view, depth_stencil_view);
+    device_context->OMSetRenderTargets(1, &offscreen_texture_rtv, depth_stencil_view);
+
 
 #if DEBUG
     event_grouper->BeginEvent(L"Clear screen");
 #endif
     FLOAT color[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-    device_context->ClearRenderTargetView(render_target_view, color);
+    // device_context->ClearRenderTargetView(render_target_view, color);
+    device_context->ClearRenderTargetView(offscreen_texture_rtv, color);
     device_context->ClearDepthStencilView(depth_stencil_view, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 #if DEBUG
     event_grouper->EndEvent();
@@ -914,16 +925,12 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     event_grouper->EndEvent();
 #endif
 
-    // TODO: Create new RenderTargetView and Texture2D for rendering our 3D scene, then set them up and bind
-    // those instead of the backbuffer render target.
-
-    // TODO: Implement post-processing stuff here; Call OMSetRenderTargets() for rendering to the backbuffer
-    // and set up the post-processing shader bindings. Then figure out what needs to happen next.
-
-    // TODO: Use a ShaderResourceView to wrap the Texture2D which we rendered the 3D scene into. Then use PSSetShaderResources()
-    // to bind that SRV. Look at skybox rendering for all of the things that can and may need to be set before
-    // being able to draw. Then we need to figure out what, if anything, needs to be done to send that texture to the
-    // new shader (which needs to be written) and then to the backbuffer to be displayed.
+    device_context->ClearState();
+    device_context->CSSetShader(postprocess_shader, NULL, 0);    // set compute shader
+    device_context->CSSetShaderResources(4, 1, &offscreen_texture_srv);             // set input texture
+    device_context->CSSetUnorderedAccessViews(4, 1, &backbuffer_uav, NULL); // set output texture
+    device_context->Dispatch((WIDTH+15)/16, (HEIGHT+15)/16, 1);          // run it
+    device_context->ClearState();
 
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());

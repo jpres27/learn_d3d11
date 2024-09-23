@@ -81,3 +81,12 @@ float4 sky_ps(SKYMAP_VS_OUTPUT input) : SV_TARGET
 {
     return skymap.Sample(tex_sampler, input.tex_coord);
 }
+
+Texture2D<float4> post_input  : register(t4);
+RWTexture2D<float4> post_output : register(u4);
+
+[numthreads(16, 16, 1)]
+void postprocessing(uint3 Pos: SV_DispatchThreadID)
+{
+  post_output[Pos.xy] = 15.0 * post_input[Pos.xy]; // make everything 2x darker, Pos.xy is pixel coordinate of output
+}

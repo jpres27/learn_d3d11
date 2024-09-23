@@ -1,5 +1,5 @@
 #include "geometry.h"
-real32 PI = 3.14159265359;
+real32 PI = (real32)3.14159265359;
 
 Sphere build_smooth_sphere()
 {
