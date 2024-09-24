@@ -1,3 +1,5 @@
+#include <vector>
+
 void draw_debug_lines(std::vector<Vertex> line_vertices)
 {
     HRESULT hr;

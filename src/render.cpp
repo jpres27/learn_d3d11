@@ -4,7 +4,11 @@
 #pragma comment (lib, "dinput8")
 #pragma comment (lib, "dxguid")
 #pragma comment (lib, "dxgi")
+#pragma comment (lib, "mfplat")
+#pragma comment (lib, "mfreadwrite")
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <windows.h>
 #include <d3d11_1.h>
@@ -13,6 +17,10 @@
 #include <DirectXMath.h>
 #include <DirectXCollision.h>
 #include <dinput.h>
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
+
 
 #define IMGUI_IMPLEMENTATION
 #include "dear_imgui_single.h"
@@ -22,8 +30,8 @@
 #include "../external/dearimgui/backends/imgui_impl_win32.cpp"
 
 #include <time.h>
-#include <vector>
 
+#include "win32_wasapi.h"
 #include "render.h"
 #include "utils.cpp"
 #include "geometry.cpp"
@@ -34,8 +42,8 @@ global_variable bool32 running;
 
 real64 counts_per_second = 0.0;
 int64 counter_start = 0;
-int frame_count = 0;
-int fps = 0;
+int32 frame_count = 0;
+int32 fps = 0;
 int64 frame_time_old = 0;
 real64 frame_time;
 
@@ -123,6 +131,7 @@ bool32 show_num_rendered;
 #include "load_texture.cpp"
 #include "timing.cpp"
 #include "debug_draw.cpp"
+#include "sound.cpp"
 
 void init_direct_input(HINSTANCE instance, HWND window)
 {
@@ -472,7 +481,7 @@ void detect_input(real64 time, HWND window)
         show_num_rendered = !show_num_rendered;
     }
 
-    real32 speed = 15.0f * time;
+    real32 speed = (real32)(15.0f * time);
 
     if(keyboardState[DIK_A] & 0x80)
     {
@@ -606,7 +615,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     XMVECTOR rotation_axis_y = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     XMVECTOR rotation_axis_z = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
     XMVECTOR rotation_axis_x = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
-    XMMATRIX rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+    XMMATRIX rotation = XMMatrixRotationAxis(rotation_axis_y, (real32)rotation_state);
     real32 roty = 1.0f;
 
     int num_rendered_opaque = 0;
@@ -621,7 +630,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 XMMATRIX world = XMMatrixIdentity();
                 real32 x_translate = objects_to_render[i].x_coord;
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
-                rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+                rotation = XMMatrixRotationAxis(rotation_axis_y, (real32)rotation_state);
                 world = translation*rotation;
                 XMMATRIX wv = XMMatrixIdentity();
                 wv = world*cam_view;
@@ -642,7 +651,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 XMMATRIX world = XMMatrixIdentity();
                 real32 x_translate = objects_to_render[i].x_coord;
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
-                rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+                rotation = XMMatrixRotationAxis(rotation_axis_y, (real32)rotation_state);
                 world = translation*rotation;
                 XMMATRIX wv = XMMatrixIdentity();
                 wv = world*cam_view;
@@ -692,7 +701,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 XMMATRIX world = XMMatrixIdentity();
                 real32 x_translate = objects_to_render[i].x_coord;
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
-                rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+                rotation = XMMatrixRotationAxis(rotation_axis_y, (real32)rotation_state);
                 world = translation*rotation;
                 XMMATRIX wv = XMMatrixIdentity();
                 wv = world*cam_view;
@@ -713,7 +722,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
                 XMMATRIX world = XMMatrixIdentity();
                 real32 x_translate = objects_to_render[i].x_coord;
                 translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
-                rotation = XMMatrixRotationAxis(rotation_axis_y, rotation_state);
+                rotation = XMMatrixRotationAxis(rotation_axis_y, (real32)rotation_state);
                 world = translation*rotation;
                 XMMATRIX wv = XMMatrixIdentity();
                 wv = world*cam_view;
@@ -1107,6 +1116,21 @@ int WINAPI WinMain(HINSTANCE instance,
         game_objects[i] = random_objects[i];
     }
 
+    // TODO: Load game music and a sound effect and connect the sound effect to some button press
+    WasapiAudio audio;
+    WA_Start(&audio, 48000, 2, SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT);
+    size_t sampleRate = audio.bufferFormat->nSamplesPerSec;
+    size_t bytesPerSample = audio.bufferFormat->nBlockAlign;
+
+    // background "music" that will be looping
+    Sound background = S_Load(L"C:/Gamedev/render/build/sound/music/midnightforest.mp3", sampleRate);
+    background.loop = true;
+
+    // simple sound effect, won't be looping
+    Sound effect = S_Load(L"C:/Gamedev/render/build/sound/effects/sword_swing.wav", sampleRate);
+
+    HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+
     running = true;
     while(running)
     {
@@ -1115,6 +1139,69 @@ int WINAPI WinMain(HINSTANCE instance,
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
+
+		bool escPressed = false;
+		bool spacePressed = false;
+		bool delayPressed = false;
+
+        // TODO: Hook this up to regular input code
+		while (WaitForSingleObject(input, 0) == WAIT_OBJECT_0)
+		{
+			INPUT_RECORD record;
+			DWORD read;
+			if (ReadConsoleInputW(input, &record, 1, &read)
+				&& read == 1
+				&& record.EventType == KEY_EVENT
+				&& record.Event.KeyEvent.bKeyDown)
+			{
+				switch (record.Event.KeyEvent.wVirtualKeyCode)
+				{
+				case VK_ESCAPE: escPressed = true; break;
+				case VK_SPACE: spacePressed = true; break;
+				case 'D': delayPressed = true; break;
+				}
+			}
+		}
+
+		if (escPressed)
+		{
+			printf("stop!\n");
+			break;
+		}
+
+		if (spacePressed)
+		{
+			printf("tada!\n");
+			effect.pos = 0;
+		}
+
+		{
+			WA_LockBuffer(&audio);
+
+			// write at least 100msec of samples into buffer (or whatever space available, whichever is smaller)
+			// this is max amount of time you expect code will take until the next iteration of loop
+			// if code will take more time then you'll hear discontinuity as buffer will be filled with silence
+			size_t writeCount = min(sampleRate/10, audio.sampleCount);
+
+			// alternatively you can write as much as "audio.sampleCount" to fully fill the buffer (~1 second)
+			// then you can try to increase delay below to 900+ msec, it still should sound fine
+			//writeCount = audio.sampleCount;
+
+			// advance sound playback positions
+			size_t playCount = audio.playCount;
+			S_Update(&background, playCount);
+			S_Update(&effect, playCount);
+
+			// initialize output with 0.0f
+			float* output = (float *)audio.sampleBuffer;
+			memset(output, 0, writeCount * bytesPerSample);
+
+			// mix sounds into output
+			S_Mix(output, writeCount, 0.3f, &background);
+			S_Mix(output, writeCount, 0.8f, &effect);
+
+			WA_UnlockBuffer(&audio, writeCount);
+		}
 
         frame_count++;
         if(get_time() > 1.0f)
@@ -1126,7 +1213,9 @@ int WINAPI WinMain(HINSTANCE instance,
         frame_time = get_frame_time();
         detect_input(frame_time, window);
         update_and_render(game_objects, num_objects, texture_info, frame_time);
+
     }
+    WA_Stop(&audio);
     clean_up();
     
     return(0);
