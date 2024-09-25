@@ -16,6 +16,30 @@ typedef int32_t bool32;
 typedef float real32;
 typedef double real64;
 typedef real32 RGBA[4];
+typedef size_t memory_index;
+
+struct Win32_State
+{
+    uint64_t total_size;
+    void *game_memory_block;
+};
+
+struct Memory_Arena 
+{
+    memory_index size;
+    uint8_t *base;
+    memory_index used;
+};
+
+#define push_struct(arena, type) (type *)push_size_(arena, sizeof(type))
+#define push_array(arena, count, type) (type *)push_size_(arena, (count)*sizeof(type))
+void * push_size_(Memory_Arena *arena, memory_index size)
+{
+    assert((arena->used + size) < arena->size);
+    void *result = arena->base + arena->used;
+    arena->used += size;
+    return(result);
+}
 
 enum Shape_Type
 {

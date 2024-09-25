@@ -21,7 +21,6 @@
 #include <mfidl.h>
 #include <mfreadwrite.h>
 
-
 #define IMGUI_IMPLEMENTATION
 #include "dear_imgui_single.h"
 #include "../external/dearimgui/backends/imgui_impl_dx11.h"
@@ -31,8 +30,9 @@
 
 #include <time.h>
 
-#include "win32_wasapi.h"
 #include "render.h"
+#include "platform.h"
+#include "win32_wasapi.h"
 #include "utils.cpp"
 #include "geometry.cpp"
 
@@ -46,6 +46,8 @@ int32 frame_count = 0;
 int32 fps = 0;
 int64 frame_time_old = 0;
 real64 frame_time;
+
+global_variable WINDOWPLACEMENT prev_window_position = {sizeof(prev_window_position)};
 
 IDXGISwapChain1* swap_chain;
 ID3D11Device1* device;
@@ -132,6 +134,59 @@ bool32 show_num_rendered;
 #include "timing.cpp"
 #include "debug_draw.cpp"
 #include "sound.cpp"
+
+// TODO: Setup text rendering
+
+internal void init_arena(Memory_Arena *arena, memory_index size, uint8_t *base)
+{
+    arena->size = size;
+    arena->base = base;
+    arena->used = 0;
+}
+
+// NOTE: Based on Raymond Chen's blog about fullscreen toggling
+internal void toggle_fullscreen(HWND window)
+{
+  DWORD style = GetWindowLong(window, GWL_STYLE);
+  if (style & WS_OVERLAPPEDWINDOW) 
+  {
+    MONITORINFO monitor_info = { sizeof(monitor_info) };
+    if (GetWindowPlacement(window, &prev_window_position) &&
+        GetMonitorInfo(MonitorFromWindow(window,
+                       MONITOR_DEFAULTTOPRIMARY), &monitor_info)) 
+    {
+      SetWindowLong(window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+      SetWindowPos(window, HWND_TOP,
+                   monitor_info.rcMonitor.left, monitor_info.rcMonitor.top,
+                   monitor_info.rcMonitor.right - monitor_info.rcMonitor.left,
+                   monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top,
+                   SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    }
+  }
+  else 
+  {
+    SetWindowLong(window, GWL_STYLE,
+                  style | WS_OVERLAPPEDWINDOW);
+    SetWindowPlacement(window, &prev_window_position);
+    SetWindowPos(window, 0, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+  }
+}
+
+internal Window_Dimensions get_window_dimensions(HWND window)
+{
+    Window_Dimensions result;
+    RECT client_rect;
+    GetClientRect(window, &client_rect);
+    result.width = client_rect.right - client_rect.left;
+    result.height = client_rect.bottom - client_rect.top;
+
+    return (result);
+}
+
+// add to WndProc
+    // HANDLE_MSG(window, WM_LBUTTONUP, toggle_fullscreen);
 
 void init_direct_input(HINSTANCE instance, HWND window)
 {
@@ -460,6 +515,134 @@ void update_camera()
     cam_view = XMMatrixLookAtLH(cam_position, cam_target, cam_up);
 }
 
+internal void process_keyboard_event(Game_Button_State *new_state, bool32 is_down)
+{
+    if(new_state->ended_down != is_down)
+    {
+        new_state->ended_down = is_down;
+        ++new_state->half_transistion_count;
+    }
+}
+
+internal void process_pending_messages(HWND window, Game_Controller_Input *input, Mouse_State *mouse)
+{
+    MSG message;
+    while (PeekMessage(&message, 0, 0, 0, PM_REMOVE))
+    {
+        switch (message.message)
+        {
+        case WM_QUIT:
+        {
+            running = false;
+        } break;
+        case WM_MOUSEMOVE:
+        {
+            Window_Dimensions wd = get_window_dimensions(window);
+            POINT center;
+            center.x = wd.width/2;
+            center.y = wd.height/2;
+            int mouse_x = GET_X_LPARAM(message.lParam); 
+            int mouse_y = GET_Y_LPARAM(message.lParam);
+            int mouse_speed = 5;
+            if(mouse_x != center.x || mouse_y != center.y)
+            {
+                mouse->rotated = true;
+                mouse->rot_x += (mouse_x - center.y);
+                mouse->rot_y += (mouse_y - center.x);
+
+                ClientToScreen(window, &center);
+                SetCursorPos(center.x, center.y);
+            }
+        } break;
+        case WM_LBUTTONDOWN:
+        {
+            process_keyboard_event(&input->attack, true);
+        } break;
+        case WM_RBUTTONDOWN:
+        {
+            process_keyboard_event(&input->block, true);
+        } break;
+        case WM_SYSKEYDOWN:
+        case WM_SYSKEYUP:
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+        {
+            uint32_t vk_code = (uint32_t)message.wParam;
+            // NOTE: Since we are comparing was_down and is_down directly we need to use
+            // == and != to convert them to 0 or 1 values
+            bool32 was_down = ((message.lParam & KEY_MESSAGE_WAS_DOWN_BIT) != 0);
+            bool32 is_down = ((message.lParam & KEY_MESSAGE_IS_DOWN_BIT) == 0);
+
+            if(was_down != is_down)
+            {
+                if(vk_code == 'F')
+                {
+                    process_keyboard_event(&input->inventory, is_down);
+                }
+                else if(vk_code == 'J')
+                {
+                    process_keyboard_event(&input->inventory, is_down);
+                }
+                else if(vk_code == 'E')
+                {
+                    process_keyboard_event(&input->use, is_down);
+                }
+                else if(vk_code == VK_SPACE)
+                {
+                    process_keyboard_event(&input->jump, is_down);
+                }
+#if DEBUG
+                else if(vk_code == 'K')
+                {
+                    if(is_down)
+                    {
+                        show_num_rendered = !show_num_rendered;
+                    }
+                }
+#endif
+                if(is_down)
+                {
+                    if(vk_code == 'W')
+                    {
+                        process_keyboard_event(&input->move_fwd, is_down);
+                    }
+                    else if(vk_code == 'A')
+                    {
+                        process_keyboard_event(&input->move_left, is_down);
+                    }
+                    else if(vk_code == 'S')
+                    {
+                        process_keyboard_event(&input->move_back, is_down);
+                    }
+                    else if(vk_code == 'D')
+                    {
+                        process_keyboard_event(&input->move_right, is_down);
+                    }
+                    bool32 alt_key_down = (message.lParam & ALT_KEY_DOWN_BIT);
+                    if((vk_code == VK_F4) && alt_key_down)
+                    {
+                        running = false;
+                    }
+                    if((vk_code == VK_RETURN) && (alt_key_down))
+                    {
+                        if(message.hwnd)
+                        {
+                            toggle_fullscreen(message.hwnd);
+                        }
+                    }
+                }
+            }
+        } break;
+        default:
+        {
+            TranslateMessage(&message);
+            DispatchMessage(&message);
+        } break;
+        }
+    }
+}
+
+// TODO: Stop using dinput and use WM instead.
 void detect_input(real64 time, HWND window)
 {
     DIMOUSESTATE mouse_current_state;
@@ -513,6 +696,37 @@ void detect_input(real64 time, HWND window)
     return;
 }
 
+internal void update_player(real64 time, Game_Controller_Input *input, Mouse_State *mouse)
+{
+    real32 speed = (real32)(15.0f * time);
+
+    if(input->move_left.ended_down)
+    {
+        move_left_right -= speed;
+    }
+    if(input->move_right.ended_down)
+    {
+        move_left_right += speed;
+    }
+    if(input->move_fwd.ended_down)
+    {
+        move_back_forward += speed;
+    }
+    if(input->move_back.ended_down)
+    {
+        move_back_forward -= speed;
+    }
+    if(mouse->rotated)
+    {
+        cam_yaw += mouse->rot_x * 0.0001f;
+        cam_pitch += mouse->rot_y * 0.0001f;
+    }
+
+    update_camera();
+}
+
+
+
 void clean_up()
 {
     swap_chain->Release();
@@ -547,7 +761,6 @@ void clean_up()
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
 }
-
 
 void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *texture_list, real64 time)
 {
@@ -941,6 +1154,7 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
     device_context->Dispatch((WIDTH+15)/16, (HEIGHT+15)/16, 1);          // run it
     device_context->ClearState();
 
+    // TODO: Make imgui render to the backbuffer itself
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
@@ -1026,6 +1240,7 @@ HWND window_init(HINSTANCE hInstance,
     return(window);
 }
 
+/*
 void messageloop(HWND window)
 {
     MSG msg;
@@ -1046,6 +1261,7 @@ void messageloop(HWND window)
         }
     }
 }
+*/
 
 int WINAPI WinMain(HINSTANCE instance,
     HINSTANCE prev_instance, 
@@ -1073,6 +1289,10 @@ int WINAPI WinMain(HINSTANCE instance,
     int32 num_transparent_sphere = (rand() % num_transparent) + 1;
     int32 num_transparent_cube = num_transparent - num_transparent_sphere;
 #endif
+
+    Game_Controller_Input user_old_input = {};
+    Game_Controller_Input user_new_input = {};
+    Mouse_State mouse = {};
 
     // TODO: Reinstate the random generation of object numbers. Will need to either move
     // setting transparency out of the init function or leave it in there and remove above code.
@@ -1134,7 +1354,18 @@ int WINAPI WinMain(HINSTANCE instance,
     running = true;
     while(running)
     {
-        messageloop(window);
+        mouse = {};
+        user_new_input = {};
+        for(int button_index = 0; 
+            button_index < array_count(user_new_input.buttons); 
+            ++button_index)
+        {
+            user_new_input.buttons[button_index].ended_down =
+            user_old_input.buttons[button_index].ended_down;
+        }
+        process_pending_messages(window, &user_new_input, &mouse);
+
+        //messageloop(window);
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
@@ -1211,9 +1442,9 @@ int WINAPI WinMain(HINSTANCE instance,
             start_timer();
         }
         frame_time = get_frame_time();
-        detect_input(frame_time, window);
+        // detect_input(frame_time, window);
+        update_player(frame_time, &user_new_input, &mouse);
         update_and_render(game_objects, num_objects, texture_info, frame_time);
-
     }
     WA_Stop(&audio);
     clean_up();

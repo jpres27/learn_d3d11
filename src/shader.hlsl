@@ -88,5 +88,5 @@ RWTexture2D<float4> post_output : register(u4);
 [numthreads(16, 16, 1)]
 void postprocessing(uint3 Pos: SV_DispatchThreadID)
 {
-  post_output[Pos.xy] = 5.0 * post_input[Pos.xy]; // make everything 2x darker, Pos.xy is pixel coordinate of output
+  post_output[Pos.xy] = 2.0 * post_input[Pos.xy]; // make everything 2x darker, Pos.xy is pixel coordinate of output
 }
