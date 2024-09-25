@@ -547,8 +547,8 @@ internal void process_pending_messages(HWND window, Game_Controller_Input *input
             if(mouse_x != center.x || mouse_y != center.y)
             {
                 mouse->rotated = true;
-                mouse->rot_x += (mouse_x - center.y);
-                mouse->rot_y += (mouse_y - center.x);
+                mouse->rot_x += (mouse_x - center.x);
+                mouse->rot_y += (mouse_y - center.y);
 
                 ClientToScreen(window, &center);
                 SetCursorPos(center.x, center.y);
@@ -718,8 +718,8 @@ internal void update_player(real64 time, Game_Controller_Input *input, Mouse_Sta
     }
     if(mouse->rotated)
     {
-        cam_yaw += mouse->rot_x * 0.0001f;
-        cam_pitch += mouse->rot_y * 0.0001f;
+        cam_yaw += mouse->rot_x * 0.001f;
+        cam_pitch += mouse->rot_y * 0.001f;
     }
 
     update_camera();
