@@ -493,28 +493,6 @@ void scene_init()
     device->CreateDepthStencilState(&dss_desc, &ds_less_equal);
 }
 
-void update_camera()
-{
-    cam_rotation_matrix = XMMatrixRotationRollPitchYaw(cam_pitch, cam_yaw, 0);
-    cam_target = XMVector3TransformCoord(default_forward, cam_rotation_matrix);
-    cam_target = XMVector3Normalize(cam_target);
-
-    XMMATRIX rotate_y_temp_matrix;
-    rotate_y_temp_matrix = XMMatrixRotationY(cam_yaw);
-
-    cam_right = XMVector3TransformCoord(default_right, rotate_y_temp_matrix);
-    cam_up = XMVector3TransformCoord(cam_up, rotate_y_temp_matrix);
-    cam_forward = XMVector3TransformCoord(default_forward, rotate_y_temp_matrix);
-
-    cam_position += move_left_right*cam_right;
-    cam_position += move_back_forward*cam_forward;
-    move_left_right = 0.0f;
-    move_back_forward = 0.0f;
-
-    cam_target = cam_position + cam_target;
-    cam_view = XMMatrixLookAtLH(cam_position, cam_target, cam_up);
-}
-
 internal void process_keyboard_event(Game_Button_State *new_state, bool32 is_down)
 {
     if(new_state->ended_down != is_down)
@@ -575,7 +553,23 @@ internal void process_pending_messages(HWND window, Game_Controller_Input *input
 
             if(was_down != is_down)
             {
-                if(vk_code == 'F')
+                if(vk_code == 'W')
+                {
+                    process_keyboard_event(&input->move_fwd, is_down);
+                }
+                else if(vk_code == 'A')
+                {
+                    process_keyboard_event(&input->move_left, is_down);
+                }
+                else if(vk_code == 'S')
+                {
+                    process_keyboard_event(&input->move_back, is_down);
+                }
+                else if(vk_code == 'D')
+                {
+                    process_keyboard_event(&input->move_right, is_down);
+                }
+                else if(vk_code == 'F')
                 {
                     process_keyboard_event(&input->inventory, is_down);
                 }
@@ -602,22 +596,6 @@ internal void process_pending_messages(HWND window, Game_Controller_Input *input
 #endif
                 if(is_down)
                 {
-                    if(vk_code == 'W')
-                    {
-                        process_keyboard_event(&input->move_fwd, is_down);
-                    }
-                    else if(vk_code == 'A')
-                    {
-                        process_keyboard_event(&input->move_left, is_down);
-                    }
-                    else if(vk_code == 'S')
-                    {
-                        process_keyboard_event(&input->move_back, is_down);
-                    }
-                    else if(vk_code == 'D')
-                    {
-                        process_keyboard_event(&input->move_right, is_down);
-                    }
                     bool32 alt_key_down = (message.lParam & ALT_KEY_DOWN_BIT);
                     if((vk_code == VK_F4) && alt_key_down)
                     {
@@ -642,6 +620,7 @@ internal void process_pending_messages(HWND window, Game_Controller_Input *input
     }
 }
 
+#if 0
 // TODO: Stop using dinput and use WM instead.
 void detect_input(real64 time, HWND window)
 {
@@ -695,34 +674,28 @@ void detect_input(real64 time, HWND window)
 
     return;
 }
+#endif
 
-internal void update_player(real64 time, Game_Controller_Input *input, Mouse_State *mouse)
+internal void update_player(real64 time, vec2 dd_player, Mouse_State *mouse)
 {
-    real32 speed = (real32)(15.0f * time);
+    real32 speed = (real32)(20.0f * time);
 
-    if(input->move_left.ended_down)
-    {
-        move_left_right -= speed;
-    }
-    if(input->move_right.ended_down)
-    {
-        move_left_right += speed;
-    }
-    if(input->move_fwd.ended_down)
-    {
-        move_back_forward += speed;
-    }
-    if(input->move_back.ended_down)
-    {
-        move_back_forward -= speed;
-    }
-    if(mouse->rotated)
-    {
-        cam_yaw += mouse->rot_x * 0.001f;
-        cam_pitch += mouse->rot_y * 0.001f;
-    }
+    cam_rotation_matrix = XMMatrixRotationRollPitchYaw(cam_pitch, cam_yaw, 0);
+    cam_target = XMVector3TransformCoord(default_forward, cam_rotation_matrix);
+    cam_target = XMVector3Normalize(cam_target);
 
-    update_camera();
+    XMMATRIX rotate_y_temp_matrix;
+    rotate_y_temp_matrix = XMMatrixRotationY(cam_yaw);
+
+    cam_right = XMVector3TransformCoord(default_right, rotate_y_temp_matrix);
+    cam_up = XMVector3TransformCoord(cam_up, rotate_y_temp_matrix);
+    cam_forward = XMVector3TransformCoord(default_forward, rotate_y_temp_matrix);
+
+    cam_position += dd_player.x*speed*cam_right;
+    cam_position += dd_player.y*speed*cam_forward;
+
+    cam_target = cam_position + cam_target;
+    cam_view = XMMatrixLookAtLH(cam_position, cam_target, cam_up);
 }
 
 
@@ -1365,7 +1338,28 @@ int WINAPI WinMain(HINSTANCE instance,
         }
         process_pending_messages(window, &user_new_input, &mouse);
 
-        //messageloop(window);
+        vec2 dd_player = {};
+        if(user_new_input.move_left.ended_down)
+        {
+            dd_player.x = -1.0f;
+        }
+        if(user_new_input.move_right.ended_down)
+        {
+            dd_player.x = 1.0f;
+        }
+        if(user_new_input.move_fwd.ended_down)
+        {
+            dd_player.y = 1.0f;
+        }
+        if(user_new_input.move_back.ended_down)
+        {
+            dd_player.y = -1.0f;
+        }
+        if(mouse.rotated)
+        {
+            cam_yaw += mouse.rot_x * 0.001f;
+            cam_pitch += mouse.rot_y * 0.001f;
+        }
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
@@ -1443,8 +1437,12 @@ int WINAPI WinMain(HINSTANCE instance,
         }
         frame_time = get_frame_time();
         // detect_input(frame_time, window);
-        update_player(frame_time, &user_new_input, &mouse);
+        update_player(frame_time, dd_player, &mouse);
         update_and_render(game_objects, num_objects, texture_info, frame_time);
+        
+        Game_Controller_Input temp = user_new_input;
+        user_new_input = user_old_input;
+        user_old_input = temp;
     }
     WA_Stop(&audio);
     clean_up();

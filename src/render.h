@@ -41,6 +41,11 @@ void * push_size_(Memory_Arena *arena, memory_index size)
     return(result);
 }
 
+struct vec2
+{
+    real32 x, y;
+};
+
 enum Shape_Type
 {
     CUBE,
