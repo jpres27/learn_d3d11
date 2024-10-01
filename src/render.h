@@ -18,12 +18,6 @@ typedef double real64;
 typedef real32 RGBA[4];
 typedef size_t memory_index;
 
-struct Win32_State
-{
-    uint64_t total_size;
-    void *game_memory_block;
-};
-
 struct Memory_Arena 
 {
     memory_index size;

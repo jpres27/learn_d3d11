@@ -735,7 +735,7 @@ void clean_up()
     ImGui::DestroyContext();
 }
 
-void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *texture_list, real64 time)
+void update_and_render(Game_Memory *game_memory, Shape *objects_to_render, int otr_size, Texture_Info *texture_list, real64 time)
 {
     D3D11_VIEWPORT viewport = {};
     viewport.TopLeftX = 0;
@@ -760,11 +760,16 @@ void update_and_render(Shape *objects_to_render, int otr_size, Texture_Info *tex
         }
     }
 
-    // TODO: Do a single large allocation and use an arena to manage this per frame memory
+    Memory_Arena opaque_storage;
+    Memory_Arena transparent_storage;
+    init_arena(&opaque_storage, num_opaque*sizeof(Render_Object), (uint8_t *)game_memory->transient_storage);
+    uint8_t *transparent_start = (uint8_t *)(game_memory->transient_storage) + opaque_storage.size;
+    init_arena(&transparent_storage, num_opaque*sizeof(Render_Object), transparent_start);
+
     Render_Object *opaques;
-    opaques = (Render_Object *)VirtualAlloc(0, num_opaque*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    opaques = (Render_Object *)opaque_storage.base;
     Render_Object *transparents;
-    transparents = (Render_Object *)VirtualAlloc(0, num_transparent*sizeof(Render_Object), MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    transparents = (Render_Object *)transparent_storage.base;
 
     Sphere sphere = build_smooth_sphere();
 
@@ -1263,6 +1268,17 @@ int WINAPI WinMain(HINSTANCE instance,
     int32 num_transparent_cube = num_transparent - num_transparent_sphere;
 #endif
 
+    Game_Memory game_memory = {};
+    game_memory.permanent_storage_size = megabytes(64);
+    game_memory.transient_storage_size = gigabytes((uint64_t)3);
+    game_memory.total_storage_size = game_memory.permanent_storage_size + game_memory.transient_storage_size;
+    game_memory.game_memory_block = VirtualAlloc(0, (size_t)game_memory.total_storage_size, 
+                                                 MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    game_memory.permanent_storage = game_memory.game_memory_block;
+    game_memory.transient_storage = ((uint8_t *)game_memory.permanent_storage + 
+                                     game_memory.permanent_storage_size);
+
+
     Game_Controller_Input user_old_input = {};
     Game_Controller_Input user_new_input = {};
     Mouse_State mouse = {};
@@ -1438,7 +1454,7 @@ int WINAPI WinMain(HINSTANCE instance,
         frame_time = get_frame_time();
         // detect_input(frame_time, window);
         update_player(frame_time, dd_player, &mouse);
-        update_and_render(game_objects, num_objects, texture_info, frame_time);
+        update_and_render(&game_memory, game_objects, num_objects, texture_info, frame_time);
         
         Game_Controller_Input temp = user_new_input;
         user_new_input = user_old_input;

@@ -92,10 +92,14 @@ struct Game_Controller_Input
 struct Game_Memory
 {
     bool32 is_initialized;
-    uint64_t permanent_storage_size;
+
+    uint64 total_storage_size;
+    void *game_memory_block;
+
+    uint64 permanent_storage_size;
     void *permanent_storage; // NOTE: Since this is allocated with VitualAlloc, it is automatically
                              //       cleared to zero at startup
-    uint64_t transient_storage_size;
+    uint64 transient_storage_size;
     void *transient_storage;
 };
 
