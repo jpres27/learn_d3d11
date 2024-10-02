@@ -196,6 +196,10 @@ struct Light
 {
     DirectX::XMFLOAT3 dir;
     real32 pad;
+    DirectX::XMFLOAT3 pos;
+    real32 range;
+    DirectX::XMFLOAT3 att;
+    real32 pad2;
     DirectX::XMFLOAT4 ambient;
     DirectX::XMFLOAT4 diffuse;
 };

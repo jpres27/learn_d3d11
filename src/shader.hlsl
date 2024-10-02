@@ -1,7 +1,9 @@
 struct Light
 {
     float3 dir;
-    float pad;
+    float3 pos;
+    float  range;
+    float3 att;
     float4 ambient;
     float4 diffuse;
 };
@@ -25,6 +27,7 @@ TextureCube skymap;
 struct VS_OUTPUT
 {
     float4 pos : SV_POSITION;
+    float4 world_pos : POSITION;
     float2 tex_coord : TEXCOORD;
     float3 normal : NORMAL;
 };
@@ -42,6 +45,7 @@ VS_OUTPUT vs(float4 in_pos : POSITION, float2 in_tex_coord : TEXCOORD, float3 no
     wvp = mul(wvp, projection);
 
     output.pos = mul(in_pos, wvp);
+    output.world_pos = mul(in_pos, world);
     output.normal = mul(float4(normal, 0.0), world).xyz;
     output.tex_coord = in_tex_coord;
 
@@ -69,11 +73,25 @@ float4 ps(VS_OUTPUT input) : SV_TARGET
 
     float4 diffuse = cube_texture.Sample(tex_sampler, input.tex_coord);
 
-    float3 final_color;
+    float3 final_color = float3(0.0f, 0.0f, 0.0f);
 
-    final_color = diffuse.xyz * light.ambient.xyz;
-    final_color += saturate(dot(light.dir, input.normal) * light.diffuse.xyz * diffuse.xyz);
+    float3 light_to_pixel = light.pos - (float3)input.world_pos;
+    float d = length(light_to_pixel);
+    float3 final_ambient = (float3)(diffuse*light.ambient);
+    if(d > light.range)
+    {
+        return float4(final_ambient, diffuse.a);
+    }
 
+    light_to_pixel /= d;
+    float light_amt = dot(light_to_pixel, input.normal);
+    if(light_amt > 0.0f)
+    {
+        final_color += (float3)(light_amt*diffuse*light.diffuse);
+        final_color /= light.att[0] + (light.att[1]*d) + (light.att[2]*(d*d));
+    }
+
+    final_color = saturate(final_color + final_ambient);
     return float4(final_color, diffuse.a);
 }
 

@@ -820,7 +820,7 @@ void update_and_render(Game_Memory *game_memory, Shape *objects_to_render, int o
             {
                 XMMATRIX world = XMMatrixIdentity();
                 real32 x_translate = objects_to_render[i].x_coord;
-                translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
+                translation = XMMatrixTranslation(x_translate, 5.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, (real32)rotation_state);
                 world = translation*rotation;
                 XMMATRIX wv = XMMatrixIdentity();
@@ -841,7 +841,7 @@ void update_and_render(Game_Memory *game_memory, Shape *objects_to_render, int o
             {
                 XMMATRIX world = XMMatrixIdentity();
                 real32 x_translate = objects_to_render[i].x_coord;
-                translation = XMMatrixTranslation(x_translate, 20.0f, 4.0f);
+                translation = XMMatrixTranslation(x_translate, 5.0f, 4.0f);
                 rotation = XMMatrixRotationAxis(rotation_axis_y, (real32)rotation_state);
                 world = translation*rotation;
                 XMMATRIX wv = XMMatrixIdentity();
@@ -954,9 +954,16 @@ void update_and_render(Game_Memory *game_memory, Shape *objects_to_render, int o
     event_grouper->EndEvent();
 #endif
 
-    light.dir = XMFLOAT3(0.0f, 1.0f, 0.0f);
-    light.ambient = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+    // light.dir = XMFLOAT3(0.0f, 1.0f, 0.0f);
+    // light.ambient = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+    // light.diffuse = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+
+    light.pos = XMFLOAT3(0.0f, 10.0f, 0.0f);
+    light.range = 500.0f;
+    light.att = XMFLOAT3(0.2f, 0.5f, 0.5f);
+    light.ambient = XMFLOAT4(0.4f, 0.4f, 0.4f, 1.0f);
     light.diffuse = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+
 
 #if DEBUG
     event_grouper->BeginEvent(L"Setup cb_per_frame");
@@ -1061,7 +1068,7 @@ void update_and_render(Game_Memory *game_memory, Shape *objects_to_render, int o
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &opaques[i].cbuffer_offset, &size);
             device_context->PSSetShaderResources(0, 1, &opaques[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &opaques[i].texture_info.sampler_state);
-            device_context->RSSetState(ccw_cull);
+            device_context->RSSetState(cw_cull);
             device_context->DrawIndexed(36, 0, 0);
         }
         else if(opaques[i].mesh == SPHERE)
@@ -1070,7 +1077,7 @@ void update_and_render(Game_Memory *game_memory, Shape *objects_to_render, int o
             device_context->VSSetConstantBuffers1(0, 1, &cb_per_object_buffer, &opaques[i].cbuffer_offset, &size);
             device_context->PSSetShaderResources(0, 1, &opaques[i].texture_info.shader_resource_view);
             device_context->PSSetSamplers(0, 1, &opaques[i].texture_info.sampler_state);
-            device_context->RSSetState(ccw_cull);
+            device_context->RSSetState(cw_cull);
             device_context->DrawIndexed(360, 0, 0);
         }
     }
